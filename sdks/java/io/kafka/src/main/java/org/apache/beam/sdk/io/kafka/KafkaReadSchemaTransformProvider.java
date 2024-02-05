@@ -43,6 +43,8 @@ import org.apache.beam.sdk.metrics.Counter;
 import org.apache.beam.sdk.metrics.Metrics;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.schemas.transforms.Convert;
+import org.apache.beam.sdk.schemas.transforms.ExternalRawSchemaHelper;
+import org.apache.beam.sdk.schemas.transforms.ExternalRawSchemaLocator;
 import org.apache.beam.sdk.schemas.transforms.SchemaTransform;
 import org.apache.beam.sdk.schemas.transforms.SchemaTransformProvider;
 import org.apache.beam.sdk.schemas.transforms.TypedSchemaTransformProvider;
@@ -125,7 +127,12 @@ public class KafkaReadSchemaTransformProvider
             && !Strings.isNullOrEmpty(messageName))) {
       SerializableFunction<byte[], Row> valueMapper;
       Schema beamSchema;
-      if (format != null && format.equals("RAW")) {
+      ExternalRawSchemaLocator externalRawSchemaLocator =
+          configuration.getExternalRawSchemaLocator();
+      if (externalRawSchemaLocator != null) {
+        beamSchema = ExternalRawSchemaHelper.getSchema(externalRawSchemaLocator);
+        valueMapper = ExternalRawSchemaHelper.getMapper(externalRawSchemaLocator);
+      } else if (format != null && format.equals("RAW")) {
         if (inputSchema != null) {
           throw new IllegalArgumentException(
               "To read from Kafka in RAW format, you can't provide a schema.");

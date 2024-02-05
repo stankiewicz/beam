@@ -18,6 +18,7 @@
 package org.apache.beam.sdk.schemas.utils;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.auto.service.AutoService;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
@@ -25,6 +26,10 @@ import java.util.Optional;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.schemas.Schema.Field;
 import org.apache.beam.sdk.schemas.Schema.FieldType;
+import org.apache.beam.sdk.schemas.transforms.ExternalRawSchemaHelper.ExternalSchemaToRowMapper;
+import org.apache.beam.sdk.schemas.transforms.RawSchemaWithFormat;
+import org.apache.beam.sdk.schemas.transforms.RawSchemaWithFormat.Format;
+import org.apache.beam.sdk.transforms.SerializableFunction;
 import org.apache.beam.sdk.transforms.SimpleFunction;
 import org.apache.beam.sdk.util.RowJson;
 import org.apache.beam.sdk.util.RowJsonUtils;
@@ -335,6 +340,21 @@ public class JsonUtils {
     private RowToJsonFn(Schema beamSchema) {
       serializer = RowJson.RowJsonSerializer.forSchema(beamSchema);
       objectMapper = RowJsonUtils.newObjectMapperWith(serializer);
+    }
+  }
+
+  @SuppressWarnings("unused")
+  @AutoService(ExternalSchemaToRowMapper.class)
+  public static class MapperService implements ExternalSchemaToRowMapper {
+
+    @Override
+    public SerializableFunction<byte[], Row> lambda(String rawSchema, Schema beamSchema) {
+      return JsonUtils.getJsonBytesToRowFunction(beamSchema);
+    }
+
+    @Override
+    public Format supportedFormat() {
+      return RawSchemaWithFormat.Format.JSON;
     }
   }
 

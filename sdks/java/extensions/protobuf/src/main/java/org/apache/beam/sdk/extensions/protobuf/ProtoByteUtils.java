@@ -20,7 +20,9 @@ package org.apache.beam.sdk.extensions.protobuf;
 import static java.util.stream.Collectors.toList;
 import static org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.base.Preconditions.checkArgument;
 
+import com.google.auto.service.AutoService;
 import com.google.protobuf.DescriptorProtos;
+import com.google.protobuf.DescriptorProtos.DescriptorProto;
 import com.google.protobuf.Descriptors;
 import com.google.protobuf.DynamicMessage;
 import com.google.protobuf.InvalidProtocolBufferException;
@@ -29,15 +31,22 @@ import java.io.InputStream;
 import java.io.Serializable;
 import java.nio.channels.Channels;
 import java.nio.channels.ReadableByteChannel;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.apache.beam.sdk.io.FileSystems;
 import org.apache.beam.sdk.io.fs.MatchResult;
 import org.apache.beam.sdk.io.fs.ResourceId;
 import org.apache.beam.sdk.schemas.Schema;
+import org.apache.beam.sdk.schemas.transforms.ExternalRawSchemaHelper.ExternalSchemaConverter;
+import org.apache.beam.sdk.schemas.transforms.ExternalRawSchemaHelper.ExternalSchemaToRowMapper;
+import org.apache.beam.sdk.schemas.transforms.RawSchemaWithFormat.Format;
 import org.apache.beam.sdk.transforms.SerializableFunction;
 import org.apache.beam.sdk.transforms.SimpleFunction;
 import org.apache.beam.sdk.values.Row;
 import org.apache.commons.compress.utils.IOUtils;
+import org.checkerframework.checker.initialization.qual.Initialized;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.UnknownKeyFor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -112,6 +121,83 @@ public class ProtoByteUtils {
         return res.apply(input).toByteArray();
       }
     };
+  }
+
+  @AutoService(ExternalSchemaConverter.class)
+  public static class ProtoSchemaConverter implements ExternalSchemaConverter {
+
+    @Override
+    public @UnknownKeyFor @NonNull @Initialized Schema convert(
+        @UnknownKeyFor @NonNull @Initialized String rawSchema) {
+      try {
+        DescriptorProtos.FileDescriptorSet descriptorSet =
+            DescriptorProtos.FileDescriptorSet.parseFrom(
+                rawSchema.getBytes(StandardCharsets.UTF_8));
+        DescriptorProto message = descriptorSet.getFile(0).getMessageTypeList().get(0);
+        String messageName = message.getName();
+
+        ProtoSchemaInfo protoSchemaInfo =
+            new ProtoSchemaInfo(
+                descriptorSet.getFile(0).getName(), ProtoDomain.buildFrom(descriptorSet));
+        ProtoDomain protoDomain = protoSchemaInfo.getProtoDomain();
+        return ProtoDynamicMessageSchema.forDescriptor(protoDomain, messageName).getSchema();
+      } catch (InvalidProtocolBufferException e) {
+        throw new RuntimeException(e);
+      }
+    }
+
+    @Override
+    public @UnknownKeyFor @NonNull @Initialized Format supportedFormat() {
+      return Format.PROTOCOL_BUFFER;
+    }
+  }
+
+  @AutoService(ExternalSchemaToRowMapper.class)
+  public static class MapperService implements ExternalSchemaToRowMapper {
+    @Override
+    public SerializableFunction<byte[], Row> lambda(String rawSchema, Schema beamSchema) {
+      try {
+        final DescriptorProtos.FileDescriptorSet descriptorSet =
+            DescriptorProtos.FileDescriptorSet.parseFrom(
+                rawSchema.getBytes(StandardCharsets.UTF_8));
+
+        DescriptorProto message = descriptorSet.getFile(0).getMessageTypeList().get(0);
+        String messageName = message.getName();
+
+        ProtoSchemaInfo protoSchemaInfo =
+            new ProtoSchemaInfo(
+                descriptorSet.getFile(0).getName(), ProtoDomain.buildFrom(descriptorSet));
+        ProtoDomain protoDomain = protoSchemaInfo.getProtoDomain();
+        @SuppressWarnings("unchecked")
+        ProtoDynamicMessageSchema<DynamicMessage> protoDynamicMessageSchema =
+            ProtoDynamicMessageSchema.forDescriptor(protoDomain, messageName);
+        return new SimpleFunction<byte[], Row>() {
+          @Override
+          public Row apply(byte[] input) {
+            try {
+              final Descriptors.Descriptor descriptor =
+                  protoDomain
+                      .getFileDescriptor(descriptorSet.getFile(0).getName())
+                      .findMessageTypeByName(messageName);
+              DynamicMessage dynamicMessage = DynamicMessage.parseFrom(descriptor, input);
+              SerializableFunction<DynamicMessage, Row> res =
+                  protoDynamicMessageSchema.getToRowFunction();
+              return res.apply(dynamicMessage);
+            } catch (InvalidProtocolBufferException e) {
+              LOG.error("Error parsing to DynamicMessage", e);
+              throw new RuntimeException(e);
+            }
+          }
+        };
+      } catch (InvalidProtocolBufferException e) {
+        throw new RuntimeException(e);
+      }
+    }
+
+    @Override
+    public Format supportedFormat() {
+      return Format.PROTOCOL_BUFFER;
+    }
   }
 
   /**

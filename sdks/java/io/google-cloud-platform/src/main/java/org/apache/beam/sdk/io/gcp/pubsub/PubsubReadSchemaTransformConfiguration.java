@@ -25,6 +25,7 @@ import org.apache.beam.sdk.io.gcp.pubsub.PubsubTestClient.PubsubTestClientFactor
 import org.apache.beam.sdk.schemas.AutoValueSchema;
 import org.apache.beam.sdk.schemas.annotations.DefaultSchema;
 import org.apache.beam.sdk.schemas.annotations.SchemaFieldDescription;
+import org.apache.beam.sdk.schemas.transforms.ExternalRawSchemaLocator;
 
 /**
  * Configuration for reading from Pub/Sub.
@@ -60,6 +61,11 @@ public abstract class PubsubReadSchemaTransformConfiguration {
           + "(https://avro.apache.org/docs/1.10.2/spec.html#schemas). "
           + "For JSON data, this is a schema defined with JSON-schema syntax (https://json-schema.org/).")
   public abstract String getSchema();
+
+  @SchemaFieldDescription(
+      "The schema can be located on external service. Use locator to specify "
+          + " location of schema.")
+  public abstract @Nullable ExternalRawSchemaLocator getExternalRawSchemaLocator();
 
   @SchemaFieldDescription(
       "Any additional pubsub attributes that should be populated as String fields in the ouptut rows.")
@@ -129,6 +135,8 @@ public abstract class PubsubReadSchemaTransformConfiguration {
     public abstract Builder setFormat(String format);
 
     public abstract Builder setSchema(String schema);
+
+    public abstract Builder setExternalRawSchemaLocator(ExternalRawSchemaLocator locator);
 
     public abstract Builder setAttributes(@Nullable List<String> attributes);
 

@@ -29,6 +29,7 @@ import org.apache.beam.sdk.io.gcp.pubsub.PubsubTestClient.PubsubTestClientFactor
 import org.apache.beam.sdk.metrics.Counter;
 import org.apache.beam.sdk.metrics.Metrics;
 import org.apache.beam.sdk.schemas.Schema;
+import org.apache.beam.sdk.schemas.transforms.ExternalRawSchemaHelper;
 import org.apache.beam.sdk.schemas.transforms.SchemaTransform;
 import org.apache.beam.sdk.schemas.transforms.SchemaTransformProvider;
 import org.apache.beam.sdk.schemas.transforms.TypedSchemaTransformProvider;
@@ -101,24 +102,29 @@ public class PubsubReadSchemaTransformProvider
     Schema payloadSchema;
     SerializableFunction<byte[], Row> payloadMapper;
 
-    String format =
-        configuration.getFormat() == null ? null : configuration.getFormat().toUpperCase();
-    if ("RAW".equals(format)) {
-      payloadSchema = Schema.of(Schema.Field.of("payload", Schema.FieldType.BYTES));
-      payloadMapper = input -> Row.withSchema(payloadSchema).addValue(input).build();
-    } else if ("JSON".equals(format)) {
-      payloadSchema = JsonUtils.beamSchemaFromJsonSchema(configuration.getSchema());
-      payloadMapper = JsonUtils.getJsonBytesToRowFunction(payloadSchema);
-    } else if ("AVRO".equals(format)) {
-      payloadSchema =
-          AvroUtils.toBeamSchema(
-              new org.apache.avro.Schema.Parser().parse(configuration.getSchema()));
-      payloadMapper = AvroUtils.getAvroBytesToRowFunction(payloadSchema);
-    } else {
-      throw new IllegalArgumentException(
-          String.format(
-              "Format %s not supported. Only supported formats are %s",
-              configuration.getFormat(), VALID_FORMATS_STR));
+    if(configuration.getExternalRawSchemaLocator()!=null){
+      payloadSchema = ExternalRawSchemaHelper.getRawSchema(configuration.getExternalRawSchemaLocator());
+      payloadMapper = ExternalRawSchemaHelper.getMapper(configuration.getExternalRawSchemaLocator());
+    }else {
+      String format =
+          configuration.getFormat() == null ? null : configuration.getFormat().toUpperCase();
+      if ("RAW".equals(format)) {
+        payloadSchema = Schema.of(Schema.Field.of("payload", Schema.FieldType.BYTES));
+        payloadMapper = input -> Row.withSchema(payloadSchema).addValue(input).build();
+      } else if ("JSON".equals(format)) {
+        payloadSchema = JsonUtils.beamSchemaFromJsonSchema(configuration.getSchema());
+        payloadMapper = JsonUtils.getJsonBytesToRowFunction(payloadSchema);
+      } else if ("AVRO".equals(format)) {
+        payloadSchema =
+            AvroUtils.toBeamSchema(
+                new org.apache.avro.Schema.Parser().parse(configuration.getSchema()));
+        payloadMapper = AvroUtils.getAvroBytesToRowFunction(payloadSchema);
+      } else {
+        throw new IllegalArgumentException(
+            String.format(
+                "Format %s not supported. Only supported formats are %s",
+                configuration.getFormat(), VALID_FORMATS_STR));
+      }
     }
 
     PubsubReadSchemaTransform transform =

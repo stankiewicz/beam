@@ -24,6 +24,7 @@ import javax.annotation.Nullable;
 import org.apache.beam.sdk.schemas.AutoValueSchema;
 import org.apache.beam.sdk.schemas.annotations.DefaultSchema;
 import org.apache.beam.sdk.schemas.annotations.SchemaFieldDescription;
+import org.apache.beam.sdk.schemas.transforms.ExternalRawSchemaLocator;
 import org.apache.beam.sdk.schemas.transforms.providers.ErrorHandling;
 import org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.collect.Sets;
 
@@ -77,6 +78,9 @@ public abstract class KafkaReadSchemaTransformConfiguration {
   @Nullable
   public abstract String getConfluentSchemaRegistrySubject();
 
+  @Nullable
+  public abstract ExternalRawSchemaLocator getExternalRawSchemaLocator();
+
   @SchemaFieldDescription(
       "The schema in which the data is encoded in the Kafka topic. "
           + "For AVRO data, this is a schema defined with AVRO schema syntax "
@@ -128,6 +132,8 @@ public abstract class KafkaReadSchemaTransformConfiguration {
 
     /** Sets the bootstrap servers for the Kafka consumer. */
     public abstract Builder setBootstrapServers(String value);
+
+    public abstract Builder setExternalRawSchemaLocator(ExternalRawSchemaLocator locator);
 
     public abstract Builder setConfluentSchemaRegistryUrl(String schemaRegistry);
 

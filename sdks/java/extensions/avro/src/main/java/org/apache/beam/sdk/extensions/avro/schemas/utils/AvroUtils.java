@@ -20,6 +20,7 @@ package org.apache.beam.sdk.extensions.avro.schemas.utils;
 import static org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.base.Preconditions.checkArgument;
 import static org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.base.Preconditions.checkNotNull;
 
+import com.google.auto.service.AutoService;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -79,6 +80,9 @@ import org.apache.beam.sdk.schemas.logicaltypes.OneOfType;
 import org.apache.beam.sdk.schemas.logicaltypes.SqlTypes;
 import org.apache.beam.sdk.schemas.logicaltypes.VariableBytes;
 import org.apache.beam.sdk.schemas.logicaltypes.VariableString;
+import org.apache.beam.sdk.schemas.transforms.ExternalRawSchemaHelper.ExternalSchemaToRowMapper;
+import org.apache.beam.sdk.schemas.transforms.RawSchemaWithFormat.Format;
+import org.apache.beam.sdk.schemas.transforms.RawSchemaWithFormat;
 import org.apache.beam.sdk.schemas.utils.ByteBuddyUtils.ConvertType;
 import org.apache.beam.sdk.schemas.utils.ByteBuddyUtils.ConvertValueForGetter;
 import org.apache.beam.sdk.schemas.utils.ByteBuddyUtils.ConvertValueForSetter;
@@ -597,6 +601,18 @@ public class AvroUtils {
   /** Returns a function mapping encoded AVRO {@link GenericRecord}s to Beam {@link Row}s. */
   public static SimpleFunction<byte[], Row> getAvroBytesToRowFunction(Schema beamSchema) {
     return new AvroBytesToRowFn(beamSchema);
+  }
+
+  @AutoService(ExternalSchemaToRowMapper.class)
+  public static class MapperService implements ExternalSchemaToRowMapper {
+    @Override
+    public SerializableFunction<byte[], Row> lambda(String rawSchema, Schema payloadSchema) {
+      return AvroUtils.getAvroBytesToRowFunction(payloadSchema);
+    }
+    @Override
+    public Format supportedFormat() {
+      return RawSchemaWithFormat.Format.AVRO;
+    }
   }
 
   private static class AvroBytesToRowFn extends SimpleFunction<byte[], Row> {
