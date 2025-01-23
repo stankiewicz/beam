@@ -70,11 +70,12 @@ public class HiveCatalogIT extends IcebergCatalogBaseIT {
 
   @Override
   public Map<String, Object> managedIcebergConfig(String tableId) {
-    String metastoreUri = hiveMetastoreExtension.hiveConf().getVar(HiveConf.ConfVars.METASTOREURIS);
+    String metastoreUri =
+        hiveMetastoreExtension.hiveConf().getVar(HiveConf.ConfVars.METASTORE_URIS);
 
     Map<String, String> confProperties =
         ImmutableMap.<String, String>builder()
-            .put(HiveConf.ConfVars.METASTOREURIS.varname, metastoreUri)
+            .put(HiveConf.ConfVars.METASTORE_URIS.varname, metastoreUri)
             .put(HiveConf.ConfVars.METASTOREWAREHOUSE.varname, warehouse)
             .build();
 
