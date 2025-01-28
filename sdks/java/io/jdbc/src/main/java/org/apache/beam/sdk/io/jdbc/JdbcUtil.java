@@ -685,7 +685,9 @@ public class JdbcUtil {
     void reportLineage(Lineage lineage, @Nullable String table) {
       ImmutableList.Builder<String> builder = ImmutableList.<String>builder().addAll(getSegments());
       if (table != null && !table.isEmpty()) {
-        builder.add(table);
+        for (String schema_table: table.split("\\.")){
+          builder.add(schema_table);
+        }
       }
       lineage.add(getScheme(), builder.build());
     }
