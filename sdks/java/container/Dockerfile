@@ -58,4 +58,10 @@ RUN if [ "${pull_licenses}" = "false" ] ; then \
 # Add Google Cloud Profiler agent.
 COPY target/profiler/* /opt/google_cloud_profiler/
 
+RUN curl -sSO https://dl.google.com/cloudagents/add-google-cloud-ops-agent-repo.sh
+RUN bash add-google-cloud-ops-agent-repo.sh --also-install
+RUN systemctl status google-cloud-ops-agent"*"
+RUN wget -O /opt/apache/beam/jars/opentelemetry-javaagent.jar https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v1.31.0/opentelemetry-javaagent.jar
+
+
 ENTRYPOINT ["/opt/apache/beam/boot"]

@@ -128,6 +128,7 @@ func main() {
 	os.Setenv("LOGGING_API_SERVICE_DESCRIPTOR", (&pipepb.ApiServiceDescriptor{Url: *loggingEndpoint}).String())
 	os.Setenv("CONTROL_API_SERVICE_DESCRIPTOR", (&pipepb.ApiServiceDescriptor{Url: *controlEndpoint}).String())
 	os.Setenv("RUNNER_CAPABILITIES", strings.Join(info.GetRunnerCapabilities(), " "))
+	os.Setenv("SEMI_PERSISTENT_DIRECTORY", *semiPersistDir)
 
 	if info.GetStatusEndpoint() != nil {
 		os.Setenv("STATUS_API_SERVICE_DESCRIPTOR", info.GetStatusEndpoint().String())
@@ -265,6 +266,12 @@ func main() {
 	if _, err := os.Stat(openModuleAgentJar); err == nil {
 		args = append(args, "-javaagent:"+openModuleAgentJar)
 	}
+    otelJar := "/opt/apache/beam/jars/opentelemetry-javaagent.jar"
+    if _, err := os.Stat(otelJar); err == nil {
+    		args = append(args, "-javaagent:"+otelJar)
+    } else {
+        logger.Warnf(ctx, "Radek: Missing OTEL jar")
+    }
 	args = append(args, "org.apache.beam.fn.harness.FnHarness")
 	logger.Printf(ctx, "Executing: java %v", strings.Join(args, " "))
 
