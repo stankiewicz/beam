@@ -17,7 +17,9 @@
  */
 package org.apache.beam.runners.dataflow.options;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.google.api.services.dataflow.Dataflow;
+import io.opentelemetry.api.trace.TracerProvider;
 import java.util.List;
 import java.util.Map;
 import org.apache.beam.runners.dataflow.DataflowRunner;
@@ -31,9 +33,11 @@ import org.apache.beam.sdk.options.ApplicationNameOptions;
 import org.apache.beam.sdk.options.Default;
 import org.apache.beam.sdk.options.DefaultValueFactory;
 import org.apache.beam.sdk.options.Description;
+import org.apache.beam.sdk.options.OpenTelemetryTracingOptions;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.StreamingOptions;
 import org.apache.beam.sdk.options.Validation;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -54,6 +58,7 @@ public interface DataflowPipelineOptions
         DataflowWorkerLoggingOptions,
         DataflowStreamingPipelineOptions,
         DataflowProfilingOptions,
+        OpenTelemetryTracingOptions,
         PubsubOptions {
 
   @Description(
@@ -84,6 +89,11 @@ public interface DataflowPipelineOptions
   String getStagingLocation();
 
   void setStagingLocation(String value);
+
+  @Override
+  @JsonIgnore
+  @Nullable
+  TracerProvider getTracerProvider();
 
   /** Whether to update the currently running pipeline with the same name as this one. */
   @Description(
