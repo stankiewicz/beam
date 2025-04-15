@@ -17,6 +17,7 @@
  */
 package org.apache.beam.runners.dataflow.worker.util;
 
+import io.opentelemetry.context.Context;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Objects;
@@ -47,6 +48,16 @@ public class ValueInEmptyWindows<T> extends WindowedValue<T> {
   @Override
   public PaneInfo getPane() {
     return PaneInfo.NO_FIRING;
+  }
+
+  @Override
+  public @Nullable Context getContext() {
+    return null;
+  }
+
+  @Override
+  public WindowedValue<T> withContext(Context context) {
+    return this;
   }
 
   @Override

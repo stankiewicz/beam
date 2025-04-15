@@ -18,15 +18,19 @@
 package org.apache.beam.sdk.values;
 
 import com.google.auto.value.AutoValue;
+import io.opentelemetry.context.Context;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.List;
 import org.apache.beam.sdk.annotations.Internal;
+import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.coders.InstantCoder;
+import org.apache.beam.sdk.coders.NullableCoder;
 import org.apache.beam.sdk.coders.StructuredCoder;
 import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
 import org.apache.beam.sdk.transforms.windowing.PaneInfo;
+import org.apache.beam.sdk.util.WindowedValue;
 import org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.collect.ImmutableList;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.joda.time.Instant;
@@ -57,12 +61,18 @@ public abstract class ValueInSingleWindow<T> {
   /** Returns the window of this {@code ValueInSingleWindow}. */
   public abstract BoundedWindow getWindow();
 
+  public abstract @Nullable Context getTracingContext();
   /** Returns the pane of this {@code ValueInSingleWindow} in its window. */
   public abstract PaneInfo getPane();
 
   public static <T> ValueInSingleWindow<T> of(
       T value, Instant timestamp, BoundedWindow window, PaneInfo paneInfo) {
-    return new AutoValue_ValueInSingleWindow<>(value, timestamp, window, paneInfo);
+    return new AutoValue_ValueInSingleWindow<>(value, timestamp, window, null, paneInfo);
+  }
+
+  public static <T> ValueInSingleWindow<T> of(
+      T value, Instant timestamp, BoundedWindow window, PaneInfo paneInfo, Context context) {
+    return new AutoValue_ValueInSingleWindow<>(value, timestamp, window, context, paneInfo);
   }
 
   /** A coder for {@link ValueInSingleWindow}. */
@@ -87,30 +97,34 @@ public abstract class ValueInSingleWindow<T> {
     @Override
     public void encode(ValueInSingleWindow<T> windowedElem, OutputStream outStream)
         throws IOException {
-      encode(windowedElem, outStream, Context.NESTED);
+      encode(windowedElem, outStream, Coder.Context.NESTED);
     }
 
     @Override
-    public void encode(ValueInSingleWindow<T> windowedElem, OutputStream outStream, Context context)
+    public void encode(
+        ValueInSingleWindow<T> windowedElem, OutputStream outStream, Coder.Context context)
         throws IOException {
       InstantCoder.of().encode(windowedElem.getTimestamp(), outStream);
       windowCoder.encode(windowedElem.getWindow(), outStream);
       PaneInfo.PaneInfoCoder.INSTANCE.encode(windowedElem.getPane(), outStream);
+      NullableCoder.of(new WindowedValue.OpenTelemetryContextCoder()).encode(windowedElem.getTracingContext(), outStream);
       valueCoder.encode(windowedElem.getValue(), outStream, context);
     }
 
     @Override
     public ValueInSingleWindow<T> decode(InputStream inStream) throws IOException {
-      return decode(inStream, Context.NESTED);
+      return decode(inStream, Coder.Context.NESTED);
     }
 
     @Override
-    public ValueInSingleWindow<T> decode(InputStream inStream, Context context) throws IOException {
+    public ValueInSingleWindow<T> decode(InputStream inStream, Coder.Context context)
+        throws IOException {
       Instant timestamp = InstantCoder.of().decode(inStream);
       BoundedWindow window = windowCoder.decode(inStream);
       PaneInfo pane = PaneInfo.PaneInfoCoder.INSTANCE.decode(inStream);
+      io.opentelemetry.context.Context tracingContext = NullableCoder.of(new WindowedValue.OpenTelemetryContextCoder()).decode(inStream);
       T value = valueCoder.decode(inStream, context);
-      return new AutoValue_ValueInSingleWindow<>(value, timestamp, window, pane);
+      return new AutoValue_ValueInSingleWindow<>(value, timestamp, window, tracingContext, pane);
     }
 
     @Override
