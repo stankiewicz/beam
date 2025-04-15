@@ -17,6 +17,7 @@
  */
 package org.apache.beam.runners.dataflow.worker;
 
+import io.opentelemetry.context.Context;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -107,10 +108,11 @@ public class WindmillKeyedWorkItem<K, ElemT> implements KeyedWorkItem<K, ElemT> 
                 Collection<? extends BoundedWindow> windows =
                     WindmillSink.decodeMetadataWindows(windowsCoder, message.getMetadata());
                 PaneInfo pane = WindmillSink.decodeMetadataPane(message.getMetadata());
+                Context context = WindmillSink.decodeContext(windowsCoder, message.getMetadata());
 
                 InputStream inputStream = message.getData().newInput();
                 ElemT value = valueCoder.decode(inputStream, Coder.Context.OUTER);
-                return WindowedValue.of(value, timestamp, windows, pane);
+                return WindowedValue.of(value, timestamp, windows, pane).withContext(context);
               } catch (IOException e) {
                 throw new RuntimeException(e);
               }
