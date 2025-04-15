@@ -17,9 +17,19 @@
  */
 package org.apache.beam.sdk.util;
 
+import io.opentelemetry.api.trace.propagation.W3CTraceContextPropagator;
+import io.opentelemetry.context.propagation.TextMapGetter;
+import io.opentelemetry.context.propagation.TextMapSetter;
+import java.util.HashMap;
+import java.util.Map;
+import org.apache.beam.sdk.coders.CustomCoder;
+import org.apache.beam.sdk.coders.MapCoder;
+import org.apache.beam.sdk.coders.NullableCoder;
+import org.apache.beam.sdk.coders.StringUtf8Coder;
 import static org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.base.Preconditions.checkArgument;
 import static org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.base.Preconditions.checkNotNull;
 
+import io.opentelemetry.context.Context;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -56,9 +66,10 @@ import org.joda.time.Instant;
  *
  * @param <T> the type of the value
  */
+@SuppressWarnings("SameNameButDifferent")
 @Internal
 public abstract class WindowedValue<T> {
-
+  // Windowed Value is only extended by SimpleWindowedValue and ValueInEmptyWindows
   /** Returns a {@code WindowedValue} with the given value, timestamp, and windows. */
   public static <T> WindowedValue<T> of(
       T value, Instant timestamp, Collection<? extends BoundedWindow> windows, PaneInfo pane) {
@@ -68,7 +79,7 @@ public abstract class WindowedValue<T> {
     if (windows.size() == 1) {
       return of(value, timestamp, windows.iterator().next(), pane);
     } else {
-      return new TimestampedValueInMultipleWindows<>(value, timestamp, windows, pane);
+      return new TimestampedValueInMultipleWindows<>(value, timestamp, windows, pane, null);
     }
   }
 
@@ -79,7 +90,7 @@ public abstract class WindowedValue<T> {
     if (windows.size() == 1) {
       return of(value, timestamp, windows.iterator().next(), pane);
     } else {
-      return new TimestampedValueInMultipleWindows<>(value, timestamp, windows, pane);
+      return new TimestampedValueInMultipleWindows<>(value, timestamp, windows, pane, null);
     }
   }
 
@@ -92,9 +103,9 @@ public abstract class WindowedValue<T> {
     if (isGlobal && BoundedWindow.TIMESTAMP_MIN_VALUE.equals(timestamp)) {
       return valueInGlobalWindow(value, pane);
     } else if (isGlobal) {
-      return new TimestampedValueInGlobalWindow<>(value, timestamp, pane);
+      return new TimestampedValueInGlobalWindow<>(value, timestamp, pane, null);
     } else {
-      return new TimestampedValueInSingleWindow<>(value, timestamp, window, pane);
+      return new TimestampedValueInSingleWindow<>(value, timestamp, window, pane, null);
     }
   }
 
@@ -103,7 +114,7 @@ public abstract class WindowedValue<T> {
    * default timestamp and pane.
    */
   public static <T> WindowedValue<T> valueInGlobalWindow(T value) {
-    return new ValueInGlobalWindow<>(value, PaneInfo.NO_FIRING);
+    return new ValueInGlobalWindow<>(value, PaneInfo.NO_FIRING, null);
   }
 
   /**
@@ -111,7 +122,7 @@ public abstract class WindowedValue<T> {
    * default timestamp and the specified pane.
    */
   public static <T> WindowedValue<T> valueInGlobalWindow(T value, PaneInfo pane) {
-    return new ValueInGlobalWindow<>(value, pane);
+    return new ValueInGlobalWindow<>(value, pane, null);
   }
 
   /**
@@ -122,7 +133,7 @@ public abstract class WindowedValue<T> {
     if (BoundedWindow.TIMESTAMP_MIN_VALUE.equals(timestamp)) {
       return valueInGlobalWindow(value);
     } else {
-      return new TimestampedValueInGlobalWindow<>(value, timestamp, PaneInfo.NO_FIRING);
+      return new TimestampedValueInGlobalWindow<>(value, timestamp, PaneInfo.NO_FIRING, null);
     }
   }
 
@@ -135,7 +146,7 @@ public abstract class WindowedValue<T> {
     if (paneInfo.equals(PaneInfo.NO_FIRING)) {
       return timestampedValueInGlobalWindow(value, timestamp);
     } else {
-      return new TimestampedValueInGlobalWindow<>(value, timestamp, paneInfo);
+      return new TimestampedValueInGlobalWindow<>(value, timestamp, paneInfo, null);
     }
   }
 
@@ -161,6 +172,10 @@ public abstract class WindowedValue<T> {
   public boolean isSingleWindowedValue() {
     return false;
   }
+
+  public abstract @Nullable Context getContext();
+
+  public abstract WindowedValue<T> withContext(Context context);
 
   /**
    * Returns a collection of {@link WindowedValue WindowedValues} identical to this one, except each
@@ -221,10 +236,17 @@ public abstract class WindowedValue<T> {
 
     private final T value;
     private final PaneInfo pane;
+    private final @Nullable Context context;
 
-    protected SimpleWindowedValue(T value, PaneInfo pane) {
+    protected SimpleWindowedValue(T value, PaneInfo pane, @Nullable Context context) {
       this.value = value;
       this.pane = checkNotNull(pane);
+      this.context = context;
+    }
+
+    @Override
+    public @Nullable Context getContext() {
+      return context;
     }
 
     @Override
@@ -240,8 +262,8 @@ public abstract class WindowedValue<T> {
 
   /** The abstract superclass of WindowedValue representations where timestamp == MIN. */
   private abstract static class MinTimestampWindowedValue<T> extends SimpleWindowedValue<T> {
-    public MinTimestampWindowedValue(T value, PaneInfo pane) {
-      super(value, pane);
+    public MinTimestampWindowedValue(T value, PaneInfo pane, @Nullable Context context) {
+      super(value, pane, context);
     }
 
     @Override
@@ -254,13 +276,18 @@ public abstract class WindowedValue<T> {
   private static class ValueInGlobalWindow<T> extends MinTimestampWindowedValue<T>
       implements SingleWindowedValue {
 
-    public ValueInGlobalWindow(T value, PaneInfo pane) {
-      super(value, pane);
+    public ValueInGlobalWindow(T value, PaneInfo pane, @Nullable Context context) {
+      super(value, pane, context);
     }
 
     @Override
     public <NewT> WindowedValue<NewT> withValue(NewT newValue) {
-      return new ValueInGlobalWindow<>(newValue, getPane());
+      return new ValueInGlobalWindow<>(newValue, getPane(), getContext());
+    }
+
+    @Override
+    public WindowedValue<T> withContext(Context context) {
+      return new ValueInGlobalWindow<>(getValue(), getPane(), context);
     }
 
     @Override
@@ -307,8 +334,9 @@ public abstract class WindowedValue<T> {
   private abstract static class TimestampedWindowedValue<T> extends SimpleWindowedValue<T> {
     private final Instant timestamp;
 
-    public TimestampedWindowedValue(T value, Instant timestamp, PaneInfo pane) {
-      super(value, pane);
+    public TimestampedWindowedValue(
+        T value, Instant timestamp, PaneInfo pane, @Nullable Context context) {
+      super(value, pane, context);
       this.timestamp = checkNotNull(timestamp);
     }
 
@@ -325,13 +353,20 @@ public abstract class WindowedValue<T> {
   private static class TimestampedValueInGlobalWindow<T> extends TimestampedWindowedValue<T>
       implements SingleWindowedValue {
 
-    public TimestampedValueInGlobalWindow(T value, Instant timestamp, PaneInfo pane) {
-      super(value, timestamp, pane);
+    public TimestampedValueInGlobalWindow(
+        T value, Instant timestamp, PaneInfo pane, @Nullable Context context) {
+      super(value, timestamp, pane, context);
     }
 
     @Override
     public <NewT> WindowedValue<NewT> withValue(NewT newValue) {
-      return new TimestampedValueInGlobalWindow<>(newValue, getTimestamp(), getPane());
+      return new TimestampedValueInGlobalWindow<>(
+          newValue, getTimestamp(), getPane(), getContext());
+    }
+
+    @Override
+    public WindowedValue<T> withContext(Context context) {
+      return new TimestampedValueInGlobalWindow<>(getValue(), getTimestamp(), getPane(), context);
     }
 
     @Override
@@ -390,14 +425,25 @@ public abstract class WindowedValue<T> {
     private final BoundedWindow window;
 
     public TimestampedValueInSingleWindow(
-        T value, Instant timestamp, BoundedWindow window, PaneInfo pane) {
-      super(value, timestamp, pane);
+        T value,
+        Instant timestamp,
+        BoundedWindow window,
+        PaneInfo pane,
+        @Nullable Context context) {
+      super(value, timestamp, pane, context);
       this.window = checkNotNull(window);
     }
 
     @Override
     public <NewT> WindowedValue<NewT> withValue(NewT newValue) {
-      return new TimestampedValueInSingleWindow<>(newValue, getTimestamp(), window, getPane());
+      return new TimestampedValueInSingleWindow<>(
+          newValue, getTimestamp(), window, getPane(), getContext());
+    }
+
+    @Override
+    public WindowedValue<T> withContext(Context context) {
+      return new TimestampedValueInSingleWindow<>(
+          getValue(), getTimestamp(), window, getPane(), context);
     }
 
     @Override
@@ -453,14 +499,25 @@ public abstract class WindowedValue<T> {
     private Collection<? extends BoundedWindow> windows;
 
     public TimestampedValueInMultipleWindows(
-        T value, Instant timestamp, Collection<? extends BoundedWindow> windows, PaneInfo pane) {
-      super(value, timestamp, pane);
+        T value,
+        Instant timestamp,
+        Collection<? extends BoundedWindow> windows,
+        PaneInfo pane,
+        @Nullable Context context) {
+      super(value, timestamp, pane, context);
       this.windows = checkNotNull(windows);
     }
 
     @Override
     public <NewT> WindowedValue<NewT> withValue(NewT newValue) {
-      return new TimestampedValueInMultipleWindows<>(newValue, getTimestamp(), windows, getPane());
+      return new TimestampedValueInMultipleWindows<>(
+          newValue, getTimestamp(), windows, getPane(), getContext());
+    }
+
+    @Override
+    public WindowedValue<T> withContext(Context context) {
+      return new TimestampedValueInMultipleWindows<>(
+          getValue(), getTimestamp(), windows, getPane(), context);
     }
 
     @Override
@@ -554,6 +611,39 @@ public abstract class WindowedValue<T> {
     public abstract <NewT> WindowedValueCoder<NewT> withValueCoder(Coder<NewT> valueCoder);
   }
 
+  public static class OpenTelemetryContextCoder extends CustomCoder<io.opentelemetry.context.Context> {
+    @Override
+    public void encode(io.opentelemetry.context.Context value, OutputStream outStream) throws CoderException, IOException {
+      MapCoder<String, String> stringStringMapCoder = MapCoder.of(StringUtf8Coder.of(), StringUtf8Coder.of());
+      Map<String, String> map = new HashMap<>();
+      TextMapSetter<? super Map<String, String>> setter = (carrier, k, v) -> {
+        Preconditions.checkArgumentNotNull(carrier);
+        Objects.requireNonNull(carrier.put(k, v));
+      };
+      W3CTraceContextPropagator.getInstance().inject(value, map, setter);
+      stringStringMapCoder.encode(map, outStream);
+    }
+
+    @Override
+    public io.opentelemetry.context.Context decode(InputStream inStream) throws CoderException, IOException {
+      TextMapGetter<Map<String, String>>  getter = new TextMapGetter<Map<String, String>>() {
+        @Override
+        public Iterable<String> keys(Map<String, String> carrier) {
+          return carrier.keySet();
+        }
+
+        @Override
+        public @Nullable String get(@Nullable Map<String, String> carrier, String key) {
+          return Preconditions.checkArgumentNotNull(carrier).getOrDefault(key, "");
+        }
+      };
+      return W3CTraceContextPropagator
+              .getInstance()
+              .extract(io.opentelemetry.context.Context.current(),
+                      MapCoder.of(StringUtf8Coder.of(), StringUtf8Coder.of()).decode(inStream), getter);
+    }
+  }
+
   /** Coder for {@code WindowedValue}. */
   public static class FullWindowedValueCoder<T> extends WindowedValueCoder<T> {
     private final Coder<? extends BoundedWindow> windowCoder;
@@ -605,6 +695,8 @@ public abstract class WindowedValue<T> {
       windowsCoder.encode(windowedElem.getWindows(), outStream);
       PaneInfoCoder.INSTANCE.encode(windowedElem.getPane(), outStream);
       valueCoder.encode(windowedElem.getValue(), outStream, context);
+      NullableCoder.of(new OpenTelemetryContextCoder()).encode(windowedElem.getContext(), outStream);
+
     }
 
     @Override
@@ -619,10 +711,11 @@ public abstract class WindowedValue<T> {
       Collection<? extends BoundedWindow> windows = windowsCoder.decode(inStream);
       PaneInfo pane = PaneInfoCoder.INSTANCE.decode(inStream);
       T value = valueCoder.decode(inStream, context);
+      io.opentelemetry.context.Context valueContext = NullableCoder.of(new OpenTelemetryContextCoder()).decode(inStream);
 
       // Because there are some remaining (incorrect) uses of WindowedValue with no windows,
       // we call this deprecated no-validation path when decoding
-      return WindowedValue.createWithoutValidation(value, timestamp, windows, pane);
+      return WindowedValue.createWithoutValidation(value, timestamp, windows, pane).withContext(valueContext);
     }
 
     @Override
@@ -799,22 +892,22 @@ public abstract class WindowedValue<T> {
     @Override
     public void encode(WindowedValue<T> windowedElem, OutputStream outStream)
         throws CoderException, IOException {
-      encode(windowedElem, outStream, Context.NESTED);
+      encode(windowedElem, outStream, Coder.Context.NESTED);
     }
 
     @Override
-    public void encode(WindowedValue<T> windowedElem, OutputStream outStream, Context context)
+    public void encode(WindowedValue<T> windowedElem, OutputStream outStream, Coder.Context context)
         throws CoderException, IOException {
       valueCoder.encode(windowedElem.getValue(), outStream, context);
     }
 
     @Override
     public WindowedValue<T> decode(InputStream inStream) throws CoderException, IOException {
-      return decode(inStream, Context.NESTED);
+      return decode(inStream, Coder.Context.NESTED);
     }
 
     @Override
-    public WindowedValue<T> decode(InputStream inStream, Context context)
+    public WindowedValue<T> decode(InputStream inStream, Coder.Context context)
         throws CoderException, IOException {
       return windowedValuePrototype.withValue(valueCoder.decode(inStream, context));
     }
