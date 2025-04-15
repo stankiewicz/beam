@@ -189,16 +189,15 @@ public class Redistribute {
                       s = tracingContext.makeCurrent();
                     }
                     r.outputWindowedValue(
-                            KV.of(kv.getKey(), kv.getValue().getValue()),
-                            kv.getValue().getTimestamp(),
-                            Collections.singleton(kv.getValue().getWindow()),
-                            kv.getValue().getPane());
+                        KV.of(kv.getKey(), kv.getValue().getValue()),
+                        kv.getValue().getTimestamp(),
+                        Collections.singleton(kv.getValue().getWindow()),
+                        kv.getValue().getPane());
                   } finally {
                     if (s != null) {
                       s.close();
                     }
                   }
-
                 }
               }));
     }

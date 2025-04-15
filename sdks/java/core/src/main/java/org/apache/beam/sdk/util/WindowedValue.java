@@ -17,19 +17,13 @@
  */
 package org.apache.beam.sdk.util;
 
-import io.opentelemetry.api.trace.propagation.W3CTraceContextPropagator;
-import io.opentelemetry.context.propagation.TextMapGetter;
-import io.opentelemetry.context.propagation.TextMapSetter;
-import java.util.HashMap;
-import java.util.Map;
-import org.apache.beam.sdk.coders.CustomCoder;
-import org.apache.beam.sdk.coders.MapCoder;
-import org.apache.beam.sdk.coders.NullableCoder;
-import org.apache.beam.sdk.coders.StringUtf8Coder;
 import static org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.base.Preconditions.checkArgument;
 import static org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.base.Preconditions.checkNotNull;
 
+import io.opentelemetry.api.trace.propagation.W3CTraceContextPropagator;
 import io.opentelemetry.context.Context;
+import io.opentelemetry.context.propagation.TextMapGetter;
+import io.opentelemetry.context.propagation.TextMapSetter;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -40,8 +34,10 @@ import java.io.OutputStream;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import org.apache.beam.sdk.annotations.Internal;
@@ -49,7 +45,11 @@ import org.apache.beam.sdk.coders.ByteArrayCoder;
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.coders.CoderException;
 import org.apache.beam.sdk.coders.CollectionCoder;
+import org.apache.beam.sdk.coders.CustomCoder;
 import org.apache.beam.sdk.coders.InstantCoder;
+import org.apache.beam.sdk.coders.MapCoder;
+import org.apache.beam.sdk.coders.NullableCoder;
+import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.coders.StructuredCoder;
 import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
 import org.apache.beam.sdk.transforms.windowing.GlobalWindow;
@@ -611,36 +611,43 @@ public abstract class WindowedValue<T> {
     public abstract <NewT> WindowedValueCoder<NewT> withValueCoder(Coder<NewT> valueCoder);
   }
 
-  public static class OpenTelemetryContextCoder extends CustomCoder<io.opentelemetry.context.Context> {
+  public static class OpenTelemetryContextCoder
+      extends CustomCoder<io.opentelemetry.context.Context> {
     @Override
-    public void encode(io.opentelemetry.context.Context value, OutputStream outStream) throws CoderException, IOException {
-      MapCoder<String, String> stringStringMapCoder = MapCoder.of(StringUtf8Coder.of(), StringUtf8Coder.of());
+    public void encode(io.opentelemetry.context.Context value, OutputStream outStream)
+        throws CoderException, IOException {
+      MapCoder<String, String> stringStringMapCoder =
+          MapCoder.of(StringUtf8Coder.of(), StringUtf8Coder.of());
       Map<String, String> map = new HashMap<>();
-      TextMapSetter<? super Map<String, String>> setter = (carrier, k, v) -> {
-        Preconditions.checkArgumentNotNull(carrier);
-        Objects.requireNonNull(carrier.put(k, v));
-      };
+      TextMapSetter<? super Map<String, String>> setter =
+          (carrier, k, v) -> {
+            Preconditions.checkArgumentNotNull(carrier);
+            Objects.requireNonNull(carrier.put(k, v));
+          };
       W3CTraceContextPropagator.getInstance().inject(value, map, setter);
       stringStringMapCoder.encode(map, outStream);
     }
 
     @Override
-    public io.opentelemetry.context.Context decode(InputStream inStream) throws CoderException, IOException {
-      TextMapGetter<Map<String, String>>  getter = new TextMapGetter<Map<String, String>>() {
-        @Override
-        public Iterable<String> keys(Map<String, String> carrier) {
-          return carrier.keySet();
-        }
+    public io.opentelemetry.context.Context decode(InputStream inStream)
+        throws CoderException, IOException {
+      TextMapGetter<Map<String, String>> getter =
+          new TextMapGetter<Map<String, String>>() {
+            @Override
+            public Iterable<String> keys(Map<String, String> carrier) {
+              return carrier.keySet();
+            }
 
-        @Override
-        public @Nullable String get(@Nullable Map<String, String> carrier, String key) {
-          return Preconditions.checkArgumentNotNull(carrier).getOrDefault(key, "");
-        }
-      };
-      return W3CTraceContextPropagator
-              .getInstance()
-              .extract(io.opentelemetry.context.Context.current(),
-                      MapCoder.of(StringUtf8Coder.of(), StringUtf8Coder.of()).decode(inStream), getter);
+            @Override
+            public @Nullable String get(@Nullable Map<String, String> carrier, String key) {
+              return Preconditions.checkArgumentNotNull(carrier).getOrDefault(key, "");
+            }
+          };
+      return W3CTraceContextPropagator.getInstance()
+          .extract(
+              io.opentelemetry.context.Context.current(),
+              MapCoder.of(StringUtf8Coder.of(), StringUtf8Coder.of()).decode(inStream),
+              getter);
     }
   }
 
@@ -695,8 +702,8 @@ public abstract class WindowedValue<T> {
       windowsCoder.encode(windowedElem.getWindows(), outStream);
       PaneInfoCoder.INSTANCE.encode(windowedElem.getPane(), outStream);
       valueCoder.encode(windowedElem.getValue(), outStream, context);
-      NullableCoder.of(new OpenTelemetryContextCoder()).encode(windowedElem.getContext(), outStream);
-
+      NullableCoder.of(new OpenTelemetryContextCoder())
+          .encode(windowedElem.getContext(), outStream);
     }
 
     @Override
@@ -711,11 +718,13 @@ public abstract class WindowedValue<T> {
       Collection<? extends BoundedWindow> windows = windowsCoder.decode(inStream);
       PaneInfo pane = PaneInfoCoder.INSTANCE.decode(inStream);
       T value = valueCoder.decode(inStream, context);
-      io.opentelemetry.context.Context valueContext = NullableCoder.of(new OpenTelemetryContextCoder()).decode(inStream);
+      io.opentelemetry.context.Context valueContext =
+          NullableCoder.of(new OpenTelemetryContextCoder()).decode(inStream);
 
       // Because there are some remaining (incorrect) uses of WindowedValue with no windows,
       // we call this deprecated no-validation path when decoding
-      return WindowedValue.createWithoutValidation(value, timestamp, windows, pane).withContext(valueContext);
+      return WindowedValue.createWithoutValidation(value, timestamp, windows, pane)
+          .withContext(valueContext);
     }
 
     @Override

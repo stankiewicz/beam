@@ -107,7 +107,8 @@ public abstract class ValueInSingleWindow<T> {
       InstantCoder.of().encode(windowedElem.getTimestamp(), outStream);
       windowCoder.encode(windowedElem.getWindow(), outStream);
       PaneInfo.PaneInfoCoder.INSTANCE.encode(windowedElem.getPane(), outStream);
-      NullableCoder.of(new WindowedValue.OpenTelemetryContextCoder()).encode(windowedElem.getTracingContext(), outStream);
+      NullableCoder.of(new WindowedValue.OpenTelemetryContextCoder())
+          .encode(windowedElem.getTracingContext(), outStream);
       valueCoder.encode(windowedElem.getValue(), outStream, context);
     }
 
@@ -122,7 +123,8 @@ public abstract class ValueInSingleWindow<T> {
       Instant timestamp = InstantCoder.of().decode(inStream);
       BoundedWindow window = windowCoder.decode(inStream);
       PaneInfo pane = PaneInfo.PaneInfoCoder.INSTANCE.decode(inStream);
-      io.opentelemetry.context.Context tracingContext = NullableCoder.of(new WindowedValue.OpenTelemetryContextCoder()).decode(inStream);
+      io.opentelemetry.context.Context tracingContext =
+          NullableCoder.of(new WindowedValue.OpenTelemetryContextCoder()).decode(inStream);
       T value = valueCoder.decode(inStream, context);
       return new AutoValue_ValueInSingleWindow<>(value, timestamp, window, tracingContext, pane);
     }

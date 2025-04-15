@@ -17,12 +17,11 @@
  */
 package org.apache.beam.runners.core;
 
-import io.opentelemetry.context.Scope;
-import org.apache.beam.sdk.options.OpenTelemetryTracingOptions;
 import static org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.base.Preconditions.checkArgument;
 import static org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.base.Preconditions.checkNotNull;
 
 import io.opentelemetry.context.Context;
+import io.opentelemetry.context.Scope;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -31,6 +30,7 @@ import java.util.Map;
 import java.util.Set;
 import org.apache.beam.runners.core.DoFnRunners.OutputManager;
 import org.apache.beam.sdk.coders.Coder;
+import org.apache.beam.sdk.options.OpenTelemetryTracingOptions;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.schemas.SchemaCoder;
 import org.apache.beam.sdk.state.ReadableState;
@@ -184,22 +184,23 @@ public class SimpleDoFnRunner<InputT, OutputT> implements DoFnRunner<InputT, Out
 
   @Override
   public void processElement(WindowedValue<InputT> compressedElem) {
-    Scope scope =  null;
-    try{
+    Scope scope = null;
+    try {
       Context context = compressedElem.getContext();
-      if (options.as(OpenTelemetryTracingOptions.class).getEnableOpenTelemetryTracing() && context !=null){
+      if (options.as(OpenTelemetryTracingOptions.class).getEnableOpenTelemetryTracing()
+          && context != null) {
         scope = context.makeCurrent();
       }
 
-    if (observesWindow) {
-      for (WindowedValue<InputT> elem : compressedElem.explodeWindows()) {
-        invokeProcessElement(elem);
+      if (observesWindow) {
+        for (WindowedValue<InputT> elem : compressedElem.explodeWindows()) {
+          invokeProcessElement(elem);
+        }
+      } else {
+        invokeProcessElement(compressedElem);
       }
-    } else {
-      invokeProcessElement(compressedElem);
-    }
     } finally {
-      if(scope!=null){
+      if (scope != null) {
         scope.close();
       }
     }
@@ -288,7 +289,7 @@ public class SimpleDoFnRunner<InputT, OutputT> implements DoFnRunner<InputT, Out
 
   private <T> void outputWindowedValue(TupleTag<T> tag, WindowedValue<T> windowedElem) {
     checkArgument(outputTags.contains(tag), "Unknown output tag %s", tag);
-    //Open telemetry participation - pass new context based on current one
+    // Open telemetry participation - pass new context based on current one
     windowedElem = windowedElem.withContext(Context.current());
     outputManager.output(tag, windowedElem);
   }
