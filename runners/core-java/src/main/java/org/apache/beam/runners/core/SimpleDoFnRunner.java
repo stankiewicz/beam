@@ -17,9 +17,12 @@
  */
 package org.apache.beam.runners.core;
 
+import io.opentelemetry.context.Scope;
+import org.apache.beam.sdk.options.OpenTelemetryTracingOptions;
 import static org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.base.Preconditions.checkArgument;
 import static org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.base.Preconditions.checkNotNull;
 
+import io.opentelemetry.context.Context;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -181,12 +184,24 @@ public class SimpleDoFnRunner<InputT, OutputT> implements DoFnRunner<InputT, Out
 
   @Override
   public void processElement(WindowedValue<InputT> compressedElem) {
+    Scope scope =  null;
+    try{
+      Context context = compressedElem.getContext();
+      if (options.as(OpenTelemetryTracingOptions.class).getEnableOpenTelemetryTracing() && context !=null){
+        scope = context.makeCurrent();
+      }
+
     if (observesWindow) {
       for (WindowedValue<InputT> elem : compressedElem.explodeWindows()) {
         invokeProcessElement(elem);
       }
     } else {
       invokeProcessElement(compressedElem);
+    }
+    } finally {
+      if(scope!=null){
+        scope.close();
+      }
     }
   }
 
@@ -273,6 +288,8 @@ public class SimpleDoFnRunner<InputT, OutputT> implements DoFnRunner<InputT, Out
 
   private <T> void outputWindowedValue(TupleTag<T> tag, WindowedValue<T> windowedElem) {
     checkArgument(outputTags.contains(tag), "Unknown output tag %s", tag);
+    //Open telemetry participation - pass new context based on current one
+    windowedElem = windowedElem.withContext(Context.current());
     outputManager.output(tag, windowedElem);
   }
 
