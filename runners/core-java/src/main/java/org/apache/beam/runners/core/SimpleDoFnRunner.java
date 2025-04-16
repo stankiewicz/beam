@@ -30,7 +30,6 @@ import java.util.Map;
 import java.util.Set;
 import org.apache.beam.runners.core.DoFnRunners.OutputManager;
 import org.apache.beam.sdk.coders.Coder;
-import org.apache.beam.sdk.options.OpenTelemetryTracingOptions;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.schemas.SchemaCoder;
 import org.apache.beam.sdk.state.ReadableState;
@@ -184,13 +183,12 @@ public class SimpleDoFnRunner<InputT, OutputT> implements DoFnRunner<InputT, Out
 
   @Override
   public void processElement(WindowedValue<InputT> compressedElem) {
-    Scope scope = null;
-    try {
-      Context context = compressedElem.getContext();
-      if (options.as(OpenTelemetryTracingOptions.class).getEnableOpenTelemetryTracing()
-          && context != null) {
-        scope = context.makeCurrent();
-      }
+    Context context = compressedElem.getContext();
+    try (Scope scope = context != null ? context.makeCurrent() : Context.root().makeCurrent()) {
+      //      if (options.as(OpenTelemetryTracingOptions.class).getEnableOpenTelemetryTracing()
+      //          && context != null) {
+      //        scope = context.makeCurrent();
+      //      }
 
       if (observesWindow) {
         for (WindowedValue<InputT> elem : compressedElem.explodeWindows()) {
@@ -198,10 +196,6 @@ public class SimpleDoFnRunner<InputT, OutputT> implements DoFnRunner<InputT, Out
         }
       } else {
         invokeProcessElement(compressedElem);
-      }
-    } finally {
-      if (scope != null) {
-        scope.close();
       }
     }
   }

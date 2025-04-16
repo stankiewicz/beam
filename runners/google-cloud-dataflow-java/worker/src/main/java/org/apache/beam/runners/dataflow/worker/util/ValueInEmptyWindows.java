@@ -56,7 +56,7 @@ public class ValueInEmptyWindows<T> extends WindowedValue<T> {
   }
 
   @Override
-  public WindowedValue<T> withContext(Context context) {
+  public WindowedValue<T> withContext(@Nullable Context context) {
     return this;
   }
 

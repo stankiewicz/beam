@@ -175,7 +175,7 @@ public abstract class WindowedValue<T> {
 
   public abstract @Nullable Context getContext();
 
-  public abstract WindowedValue<T> withContext(Context context);
+  public abstract WindowedValue<T> withContext(@Nullable Context context);
 
   /**
    * Returns a collection of {@link WindowedValue WindowedValues} identical to this one, except each
@@ -286,7 +286,7 @@ public abstract class WindowedValue<T> {
     }
 
     @Override
-    public WindowedValue<T> withContext(Context context) {
+    public WindowedValue<T> withContext(@Nullable Context context) {
       return new ValueInGlobalWindow<>(getValue(), getPane(), context);
     }
 
@@ -365,7 +365,7 @@ public abstract class WindowedValue<T> {
     }
 
     @Override
-    public WindowedValue<T> withContext(Context context) {
+    public WindowedValue<T> withContext(@Nullable Context context) {
       return new TimestampedValueInGlobalWindow<>(getValue(), getTimestamp(), getPane(), context);
     }
 
@@ -441,7 +441,7 @@ public abstract class WindowedValue<T> {
     }
 
     @Override
-    public WindowedValue<T> withContext(Context context) {
+    public WindowedValue<T> withContext(@Nullable Context context) {
       return new TimestampedValueInSingleWindow<>(
           getValue(), getTimestamp(), window, getPane(), context);
     }
@@ -515,7 +515,7 @@ public abstract class WindowedValue<T> {
     }
 
     @Override
-    public WindowedValue<T> withContext(Context context) {
+    public WindowedValue<T> withContext(@Nullable Context context) {
       return new TimestampedValueInMultipleWindows<>(
           getValue(), getTimestamp(), windows, getPane(), context);
     }
@@ -621,8 +621,8 @@ public abstract class WindowedValue<T> {
       Map<String, String> map = new HashMap<>();
       TextMapSetter<? super Map<String, String>> setter =
           (carrier, k, v) -> {
-            Preconditions.checkArgumentNotNull(carrier);
-            Objects.requireNonNull(carrier.put(k, v));
+            Preconditions.checkArgumentNotNull(carrier)
+                .put(Preconditions.checkArgumentNotNull(k), v);
           };
       W3CTraceContextPropagator.getInstance().inject(value, map, setter);
       stringStringMapCoder.encode(map, outStream);
