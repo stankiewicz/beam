@@ -20,6 +20,7 @@ package org.apache.beam.runners.dataflow;
 import static org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.base.Preconditions.checkState;
 
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import io.opentelemetry.context.Context;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -1392,6 +1393,17 @@ class BatchViewOverrides {
     @Override
     public PaneInfo getPane() {
       return PaneInfo.NO_FIRING;
+    }
+
+    @Override
+    public @Nullable Context getContext() {
+      return null;
+    }
+
+    @Override
+    public WindowedValue<T> withContext(Context context) {
+      // todo radek what to do with context in batch view?
+      return this;
     }
 
     @Override

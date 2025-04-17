@@ -20,6 +20,7 @@ package org.apache.beam.runners.dataflow.worker;
 import static org.apache.beam.sdk.util.Preconditions.checkArgumentNotNull;
 
 import com.google.auto.service.AutoService;
+import io.opentelemetry.context.Context;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Collection;
@@ -116,6 +117,7 @@ class UngroupedWindmillReader<T> extends NativeReader<WindowedValue<T>> {
       Collection<? extends BoundedWindow> windows =
           WindmillSink.decodeMetadataWindows(windowsCoder, message.getMetadata());
       PaneInfo pane = WindmillSink.decodeMetadataPane(message.getMetadata());
+      Context tracingContext = WindmillSink.decodeContext(windowsCoder, message.getMetadata());
       if (valueCoder instanceof KvCoder) {
         KvCoder<?, ?> kvCoder = (KvCoder<?, ?>) valueCoder;
         InputStream key = context.getSerializedKey().newInput();
@@ -124,10 +126,11 @@ class UngroupedWindmillReader<T> extends NativeReader<WindowedValue<T>> {
         @SuppressWarnings("unchecked")
         T result =
             (T) KV.of(decode(kvCoder.getKeyCoder(), key), decode(kvCoder.getValueCoder(), data));
-        return WindowedValue.of(result, timestampMillis, windows, pane);
+        return WindowedValue.of(result, timestampMillis, windows, pane).withContext(tracingContext);
       } else {
         notifyElementRead(data.available() + metadata.available());
-        return WindowedValue.of(decode(valueCoder, data), timestampMillis, windows, pane);
+        return WindowedValue.of(decode(valueCoder, data), timestampMillis, windows, pane)
+            .withContext(tracingContext);
       }
     }
 

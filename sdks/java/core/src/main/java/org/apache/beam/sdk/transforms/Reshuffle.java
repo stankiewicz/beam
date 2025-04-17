@@ -17,6 +17,8 @@
  */
 package org.apache.beam.sdk.transforms;
 
+import io.opentelemetry.context.Context;
+import io.opentelemetry.context.Scope;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
@@ -184,11 +186,17 @@ public class Reshuffle<K, V> extends PTransform<PCollection<KV<K, V>>, PCollecti
                 @ProcessElement
                 public void processElement(
                     @Element KV<K, ValueInSingleWindow<V>> kv, OutputReceiver<KV<K, V>> r) {
-                  r.outputWindowedValue(
-                      KV.of(kv.getKey(), kv.getValue().getValue()),
-                      kv.getValue().getTimestamp(),
-                      Collections.singleton(kv.getValue().getWindow()),
-                      kv.getValue().getPane());
+                  Context tracingContext = kv.getValue().getTracingContext();
+                  try (Scope s =
+                      tracingContext != null
+                          ? tracingContext.makeCurrent()
+                          : Context.root().makeCurrent()) {
+                    r.outputWindowedValue(
+                        KV.of(kv.getKey(), kv.getValue().getValue()),
+                        kv.getValue().getTimestamp(),
+                        Collections.singleton(kv.getValue().getWindow()),
+                        kv.getValue().getPane());
+                  }
                 }
               }));
     }

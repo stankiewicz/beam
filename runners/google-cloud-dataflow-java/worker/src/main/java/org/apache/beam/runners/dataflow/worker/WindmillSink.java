@@ -21,6 +21,7 @@ import static org.apache.beam.runners.dataflow.util.Structs.getString;
 import static org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.base.Preconditions.checkState;
 
 import com.google.auto.service.AutoService;
+import io.opentelemetry.context.Context;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Collection;
@@ -31,6 +32,7 @@ import org.apache.beam.runners.dataflow.worker.util.common.worker.Sink;
 import org.apache.beam.runners.dataflow.worker.windmill.Windmill;
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.coders.KvCoder;
+import org.apache.beam.sdk.coders.NullableCoder;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
 import org.apache.beam.sdk.transforms.windowing.PaneInfo;
@@ -72,11 +74,14 @@ class WindmillSink<T> extends Sink<WindowedValue<T>> {
   public static ByteString encodeMetadata(
       Coder<Collection<? extends BoundedWindow>> windowsCoder,
       Collection<? extends BoundedWindow> windows,
-      PaneInfo pane)
+      PaneInfo pane,
+      @Nullable Context context)
       throws IOException {
     ByteStringOutputStream stream = new ByteStringOutputStream();
     PaneInfoCoder.INSTANCE.encode(pane, stream);
-    windowsCoder.encode(windows, stream, Coder.Context.OUTER);
+    windowsCoder.encode(windows, stream);
+    NullableCoder.of(new WindowedValue.OpenTelemetryContextCoder())
+        .encode(context, stream, Coder.Context.OUTER);
     return stream.toByteString();
   }
 
@@ -85,12 +90,22 @@ class WindmillSink<T> extends Sink<WindowedValue<T>> {
     return PaneInfoCoder.INSTANCE.decode(inStream);
   }
 
+  public static Context decodeContext(
+      Coder<Collection<? extends BoundedWindow>> windowsCoder, ByteString metadata)
+      throws IOException {
+    InputStream inStream = metadata.newInput();
+    PaneInfoCoder.INSTANCE.decode(inStream);
+    windowsCoder.decode(inStream);
+    return NullableCoder.of(new WindowedValue.OpenTelemetryContextCoder())
+        .decode(inStream, Coder.Context.OUTER);
+  }
+
   public static Collection<? extends BoundedWindow> decodeMetadataWindows(
       Coder<Collection<? extends BoundedWindow>> windowsCoder, ByteString metadata)
       throws IOException {
     InputStream inStream = metadata.newInput();
     PaneInfoCoder.INSTANCE.decode(inStream);
-    return windowsCoder.decode(inStream, Coder.Context.OUTER);
+    return windowsCoder.decode(inStream);
   }
 
   /** A {@link SinkFactory.Registrar} for windmill sinks. */
@@ -155,7 +170,8 @@ class WindmillSink<T> extends Sink<WindowedValue<T>> {
     public long add(WindowedValue<T> data) throws IOException {
       ByteString key, value;
       ByteString id = ByteString.EMPTY;
-      ByteString metadata = encodeMetadata(windowsCoder, data.getWindows(), data.getPane());
+      ByteString metadata =
+          encodeMetadata(windowsCoder, data.getWindows(), data.getPane(), data.getContext());
       if (valueCoder instanceof KvCoder) {
         KvCoder kvCoder = (KvCoder) valueCoder;
         KV kv = (KV) data.getValue();

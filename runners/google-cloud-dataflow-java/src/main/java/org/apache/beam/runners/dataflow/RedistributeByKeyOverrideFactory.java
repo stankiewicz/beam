@@ -17,6 +17,8 @@
  */
 package org.apache.beam.runners.dataflow;
 
+import io.opentelemetry.context.Context;
+import io.opentelemetry.context.Scope;
 import java.util.Collections;
 import org.apache.beam.runners.dataflow.internal.DataflowGroupByKey;
 import org.apache.beam.sdk.runners.AppliedPTransform;
@@ -126,11 +128,17 @@ class RedistributeByKeyOverrideFactory<K, V>
                 @ProcessElement
                 public void processElement(
                     @Element KV<K, ValueInSingleWindow<V>> kv, OutputReceiver<KV<K, V>> r) {
-                  r.outputWindowedValue(
-                      KV.of(kv.getKey(), kv.getValue().getValue()),
-                      kv.getValue().getTimestamp(),
-                      Collections.singleton(kv.getValue().getWindow()),
-                      kv.getValue().getPane());
+                  Context tracingContext = kv.getValue().getTracingContext();
+                  try (Scope s =
+                      tracingContext != null
+                          ? tracingContext.makeCurrent()
+                          : Context.root().makeCurrent()) {
+                    r.outputWindowedValue(
+                        KV.of(kv.getKey(), kv.getValue().getValue()),
+                        kv.getValue().getTimestamp(),
+                        Collections.singleton(kv.getValue().getWindow()),
+                        kv.getValue().getPane());
+                  }
                 }
               }));
     }

@@ -141,6 +141,7 @@ import org.apache.beam.sdk.coders.Coder.Context;
 import org.apache.beam.sdk.coders.CollectionCoder;
 import org.apache.beam.sdk.coders.KvCoder;
 import org.apache.beam.sdk.coders.ListCoder;
+import org.apache.beam.sdk.coders.NullableCoder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.coders.VarIntCoder;
 import org.apache.beam.sdk.extensions.gcp.util.Transport;
@@ -833,8 +834,11 @@ public class StreamingDataflowWorkerTest {
 
   private ByteString addPaneTag(PaneInfo pane, byte[] windowBytes) throws IOException {
     ByteStringOutputStream output = new ByteStringOutputStream();
-    PaneInfo.PaneInfoCoder.INSTANCE.encode(pane, output, Context.OUTER);
+    PaneInfo.PaneInfoCoder.INSTANCE.encode(pane, output);
     output.write(windowBytes);
+    NullableCoder.of(new WindowedValue.OpenTelemetryContextCoder())
+        .encode(null, output, Context.OUTER);
+
     return output.toByteString();
   }
 

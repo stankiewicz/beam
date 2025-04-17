@@ -17,6 +17,7 @@
  */
 package org.apache.beam.sdk.transforms;
 
+import io.opentelemetry.context.Context;
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.coders.KvCoder;
 import org.apache.beam.sdk.coders.VoidCoder;
@@ -145,10 +146,12 @@ public class Reify {
                         BoundedWindow window,
                         PaneInfo pane,
                         OutputReceiver<KV<K, ValueInSingleWindow<V>>> r) {
+                      Context tracingContext = Context.current();
                       r.output(
                           KV.of(
                               element.getKey(),
-                              ValueInSingleWindow.of(element.getValue(), timestamp, window, pane)));
+                              ValueInSingleWindow.of(
+                                  element.getValue(), timestamp, window, pane, tracingContext)));
                     }
                   }))
           .setCoder(
