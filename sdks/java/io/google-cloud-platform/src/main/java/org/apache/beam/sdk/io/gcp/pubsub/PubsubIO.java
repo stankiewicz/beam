@@ -1130,11 +1130,14 @@ public class PubsubIO {
         TracerProvider tracerProvider =
             po.as(OpenTelemetryTracingOptions.class).getTracerProvider();
         Tracer tracer = Preconditions.checkArgumentNotNull(tracerProvider).get("PubSubIO");
-        Span psSub = tracer.spanBuilder("Process Element").setParent(context).startSpan();
+        Span psSub = null;
         try (Scope s = context.makeCurrent()) {
+          psSub = tracer.spanBuilder("PubSubIO").startSpan();
           output.output(message);
         } finally {
-          psSub.end();
+          if (psSub != null) {
+            psSub.end();
+          }
         }
       }
     }
