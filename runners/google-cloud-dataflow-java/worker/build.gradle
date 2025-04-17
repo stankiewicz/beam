@@ -214,6 +214,7 @@ dependencies {
     runtimeOnly library.java.slf4j_jdk14
 
     implementation library.java.otel_api
+    implementation library.java.otel_context
 
     // Any test dependency which intersects with our relocation rules above needs to be relocated
     // as well and placed within the testImplementation configuration. Otherwise we can place it within
