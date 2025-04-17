@@ -701,9 +701,9 @@ public abstract class WindowedValue<T> {
       InstantCoder.of().encode(windowedElem.getTimestamp(), outStream);
       windowsCoder.encode(windowedElem.getWindows(), outStream);
       PaneInfoCoder.INSTANCE.encode(windowedElem.getPane(), outStream);
-      valueCoder.encode(windowedElem.getValue(), outStream, context);
+      valueCoder.encode(windowedElem.getValue(), outStream);
       NullableCoder.of(new OpenTelemetryContextCoder())
-          .encode(windowedElem.getContext(), outStream);
+          .encode(windowedElem.getContext(), outStream, context);
     }
 
     @Override
@@ -717,9 +717,9 @@ public abstract class WindowedValue<T> {
       Instant timestamp = InstantCoder.of().decode(inStream);
       Collection<? extends BoundedWindow> windows = windowsCoder.decode(inStream);
       PaneInfo pane = PaneInfoCoder.INSTANCE.decode(inStream);
-      T value = valueCoder.decode(inStream, context);
+      T value = valueCoder.decode(inStream);
       io.opentelemetry.context.Context valueContext =
-          NullableCoder.of(new OpenTelemetryContextCoder()).decode(inStream);
+          NullableCoder.of(new OpenTelemetryContextCoder()).decode(inStream, context);
 
       // Because there are some remaining (incorrect) uses of WindowedValue with no windows,
       // we call this deprecated no-validation path when decoding

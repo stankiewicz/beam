@@ -284,7 +284,9 @@ public class SimpleDoFnRunner<InputT, OutputT> implements DoFnRunner<InputT, Out
   private <T> void outputWindowedValue(TupleTag<T> tag, WindowedValue<T> windowedElem) {
     checkArgument(outputTags.contains(tag), "Unknown output tag %s", tag);
     // Open telemetry participation - pass new context based on current one
-    windowedElem = windowedElem.withContext(Context.current());
+    windowedElem =
+        windowedElem.withContext(
+            Context.root().equals(Context.current()) ? null : Context.current());
     outputManager.output(tag, windowedElem);
   }
 
