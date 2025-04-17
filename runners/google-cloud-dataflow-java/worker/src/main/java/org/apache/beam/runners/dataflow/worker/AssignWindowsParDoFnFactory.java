@@ -21,6 +21,7 @@ import static org.apache.beam.runners.dataflow.util.Structs.getBytes;
 import static org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.base.Preconditions.checkState;
 
 import com.google.api.services.dataflow.model.SideInputInfo;
+import io.opentelemetry.context.Context;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -111,7 +112,8 @@ class AssignWindowsParDoFnFactory implements ParDoFnFactory {
               });
 
       WindowedValue<T> res =
-          WindowedValue.of(elem.getValue(), elem.getTimestamp(), windows, elem.getPane());
+          WindowedValue.of(elem.getValue(), elem.getTimestamp(), windows, elem.getPane())
+              .withContext(Context.current());
       receiver.process(res);
     }
 
