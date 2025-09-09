@@ -818,7 +818,7 @@ public final class StreamingDataflowWorker {
     validateWorkerOptions(options);
 
     CoderTranslation.verifyModelCodersRegistered();
-    if(DataflowRunner.hasExperiment(options, ELEMENT_METADATA_SUPPORTED_EXPERIMENT)) {
+    if (DataflowRunner.hasExperiment(options, ELEMENT_METADATA_SUPPORTED_EXPERIMENT)) {
       WindowedValues.FullWindowedValueCoder.setMetadataSupported();
       PaneInfo.PaneInfoCoder.setMetadataSupported();
     }
