@@ -324,11 +324,6 @@ public final class PaneInfo {
   /** A Coder for encoding PaneInfo instances. */
   public static class PaneInfoCoder extends AtomicCoder<PaneInfo> {
     private static final byte ELEMENT_METADATA_MASK = (byte) 0x80;
-    protected static boolean metadataSupported = false;
-
-    public static void setMetadataSupported() {
-      metadataSupported = true;
-    }
 
     private enum Encoding {
       FIRST,

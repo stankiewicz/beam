@@ -109,7 +109,6 @@ import org.apache.beam.sdk.fn.JvmInitializers;
 import org.apache.beam.sdk.io.FileSystems;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQuerySinkMetrics;
 import org.apache.beam.sdk.metrics.MetricsEnvironment;
-import org.apache.beam.sdk.transforms.windowing.PaneInfo;
 import org.apache.beam.sdk.util.construction.CoderTranslation;
 import org.apache.beam.sdk.values.WindowedValues;
 import org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.annotations.VisibleForTesting;
@@ -820,7 +819,6 @@ public final class StreamingDataflowWorker {
     CoderTranslation.verifyModelCodersRegistered();
     if (DataflowRunner.hasExperiment(options, ELEMENT_METADATA_SUPPORTED_EXPERIMENT)) {
       WindowedValues.FullWindowedValueCoder.setMetadataSupported();
-      PaneInfo.PaneInfoCoder.setMetadataSupported();
     }
 
     LOG.debug("Creating StreamingDataflowWorker from options: {}", options);
