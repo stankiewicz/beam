@@ -1334,11 +1334,13 @@ func (ss *stageState) injectTriggeredBundlesIfReady(em *ElementManager, window t
 	}
 	state := wv[key]
 	endOfWindowReached := window.MaxTimestamp() < ss.input
+	em.refreshCond.L.Lock()
 	ready := ss.strat.IsTriggerReady(triggerInput{
 		newElementCount:    1,
 		endOfWindowReached: endOfWindowReached,
 		emNow:              em.ProcessingTimeNow(),
 	}, &state)
+	em.refreshCond.L.Unlock()
 
 	if ready {
 		state.Pane = computeNextTriggeredPane(state.Pane, endOfWindowReached)
