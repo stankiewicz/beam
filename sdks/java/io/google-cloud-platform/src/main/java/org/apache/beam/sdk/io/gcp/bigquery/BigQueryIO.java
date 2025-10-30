@@ -124,6 +124,7 @@ import org.apache.beam.sdk.transforms.SerializableFunction;
 import org.apache.beam.sdk.transforms.SerializableFunctions;
 import org.apache.beam.sdk.transforms.SimpleFunction;
 import org.apache.beam.sdk.transforms.View;
+import org.apache.beam.sdk.transforms.WithKeys;
 import org.apache.beam.sdk.transforms.display.DisplayData;
 import org.apache.beam.sdk.transforms.errorhandling.BadRecord;
 import org.apache.beam.sdk.transforms.errorhandling.BadRecordRouter;
@@ -840,6 +841,26 @@ public class BigQueryIO {
 
     abstract ErrorHandler<BadRecord, ?> getBadRecordErrorHandler();
 
+    abstract @Nullable String getQueryLocation();
+
+    abstract @Nullable String getQueryTempDataset();
+
+    abstract @Nullable String getQueryTempProject();
+
+    abstract DynamicRead.Builder toBuilder();
+
+    public DynamicRead withQueryLocation(String location) {
+      return toBuilder().setQueryLocation(location).build();
+    }
+
+    public DynamicRead withQueryTempProject(String tempProject) {
+      return toBuilder().setQueryTempProject(tempProject).build();
+    }
+
+    public DynamicRead withQueryTempDataset(String tempDataset) {
+      return toBuilder().setQueryTempDataset(tempDataset).build();
+    }
+
     @AutoValue.Builder
     abstract static class Builder {
 
@@ -860,47 +881,108 @@ public class BigQueryIO {
       abstract Builder setBadRecordRouter(BadRecordRouter badRecordRouter);
 
       abstract DynamicRead build();
+
+      abstract Builder setQueryLocation(String queryLocation);
+
+      abstract Builder setQueryTempDataset(String queryTempDataset);
+
+      abstract Builder setQueryTempProject(String queryTempProject);
     }
 
     DynamicRead() {}
 
     class CreateBoundedSourceForTable
-        extends DoFn<BigQueryDynamicReadDescriptor, BigQueryStorageStreamSource<TableRow>> {
+        extends DoFn<
+            KV<String, BigQueryDynamicReadDescriptor>, BigQueryStorageStreamSource<TableRow>> {
 
       @ProcessElement
       public void processElement(
           OutputReceiver<BigQueryStorageStreamSource<TableRow>> receiver,
-          @Element BigQueryDynamicReadDescriptor descriptor,
+          @Element KV<String, BigQueryDynamicReadDescriptor> descriptor,
           PipelineOptions options)
           throws Exception {
-        BigQueryStorageTableSource<TableRow> output =
-            BigQueryStorageTableSource.create(
-                StaticValueProvider.of(BigQueryHelpers.parseTableSpec(descriptor.getTable())),
-                getFormat(),
-                null,
-                getRowRestriction(),
-                getParseFn(),
-                getOutputCoder(),
-                getBigQueryServices(),
-                getProjectionPushdownApplied());
-        // 1mb --> 1 shard; 1gb --> 32 shards; 1tb --> 1000 shards, 1pb --> 32k
-        // shards
-        long desiredChunkSize =
-            Math.max(1 << 20, (long) (1000 * Math.sqrt(output.getEstimatedSizeBytes(options))));
-        List<BigQueryStorageStreamSource<TableRow>> split = output.split(desiredChunkSize, options);
-        split.stream().forEach(source -> receiver.output(source));
+
+        if (descriptor.getValue().getTable() != null) {
+          BigQueryStorageTableSource<TableRow> output =
+              BigQueryStorageTableSource.create(
+                  StaticValueProvider.of(
+                      BigQueryHelpers.parseTableSpec(descriptor.getValue().getTable())),
+                  getFormat(),
+                  null,
+                  getRowRestriction(),
+                  getParseFn(),
+                  getOutputCoder(),
+                  getBigQueryServices(),
+                  getProjectionPushdownApplied());
+          // 1mb --> 1 shard; 1gb --> 32 shards; 1tb --> 1000 shards, 1pb --> 32k
+          // shards
+          long desiredChunkSize =
+              Math.max(1 << 20, (long) (1000 * Math.sqrt(output.getEstimatedSizeBytes(options))));
+          List<BigQueryStorageStreamSource<TableRow>> split =
+              output.split(desiredChunkSize, options);
+          split.stream().forEach(source -> receiver.output(source));
+        } else {
+          // run query
+          BigQueryStorageQuerySource<TableRow> querySource =
+              BigQueryStorageQuerySource.create(
+                  descriptor.getKey(),
+                  StaticValueProvider.of(descriptor.getValue().getQuery()),
+                  false, // todo transform param flattenResults
+                  false, // todo transform param legacySQL
+                  TypedRead.QueryPriority.INTERACTIVE,
+                  getQueryLocation(),
+                  getQueryTempDataset(),
+                  getQueryTempProject(),
+                  null, // todo transform kmsKey param
+                  getFormat(),
+                  getParseFn(),
+                  getOutputCoder(),
+                  getBigQueryServices());
+          Table queryResultTable = querySource.getTargetTable(options.as(BigQueryOptions.class));
+
+          BigQueryStorageTableSource<TableRow> output =
+              BigQueryStorageTableSource.create(
+                  StaticValueProvider.of(queryResultTable.getTableReference()),
+                  getFormat(),
+                  null,
+                  getRowRestriction(),
+                  getParseFn(),
+                  getOutputCoder(),
+                  getBigQueryServices(),
+                  getProjectionPushdownApplied());
+          // 1mb --> 1 shard; 1gb --> 32 shards; 1tb --> 1000 shards, 1pb --> 32k
+          // shards
+          long desiredChunkSize =
+              Math.max(1 << 20, (long) (1000 * Math.sqrt(output.getEstimatedSizeBytes(options))));
+          List<BigQueryStorageStreamSource<TableRow>> split =
+              output.split(desiredChunkSize, options);
+          split.stream().forEach(source -> receiver.output(source));
+        }
       }
     }
 
     @Override
     public PCollection<TableRow> expand(PCollection<BigQueryDynamicReadDescriptor> input) {
       TupleTag<TableRow> rowTag = new TupleTag<>();
-      PCollectionTuple resultTuple =
+      PCollection<KV<String, BigQueryDynamicReadDescriptor>> addJobId =
           input
-              .apply("convert", ParDo.of(new CreateBoundedSourceForTable()))
-              .apply("redistribute", Redistribute.arbitrarily())
               .apply(
-                  "Read Storage Table Source",
+                  "Add job id",
+                  WithKeys.of(
+                      new SimpleFunction<BigQueryDynamicReadDescriptor, String>() {
+                        @Override
+                        public String apply(BigQueryDynamicReadDescriptor input) {
+                          return BigQueryHelpers.randomUUIDString();
+                        }
+                      }))
+              .apply("Checkpoint", Redistribute.byKey());
+
+      PCollectionTuple resultTuple =
+          addJobId
+              .apply("Create streams", ParDo.of(new CreateBoundedSourceForTable()))
+              .apply("Redistribute", Redistribute.arbitrarily())
+              .apply(
+                  "Read Streams with storage read api",
                   ParDo.of(
                           new TypedRead.ReadTableSource<TableRow>(
                               rowTag, getParseFn(), getBadRecordRouter()))
