@@ -831,8 +831,6 @@ public class BigQueryIO {
 
     abstract @Nullable SerializableFunction<SchemaAndRecord, TableRow> getParseFn();
 
-    abstract @Nullable ValueProvider<String> getRowRestriction();
-
     abstract @Nullable Coder<TableRow> getOutputCoder();
 
     abstract boolean getProjectionPushdownApplied();
@@ -846,6 +844,8 @@ public class BigQueryIO {
     abstract @Nullable String getQueryTempDataset();
 
     abstract @Nullable String getQueryTempProject();
+
+    abstract @Nullable String getKmsKey();
 
     abstract DynamicRead.Builder toBuilder();
 
@@ -861,6 +861,10 @@ public class BigQueryIO {
       return toBuilder().setQueryTempDataset(tempDataset).build();
     }
 
+    public DynamicRead withKmsKey(String kmsKey) {
+      return toBuilder().setKmsKey(kmsKey).build();
+    }
+
     @AutoValue.Builder
     abstract static class Builder {
 
@@ -869,8 +873,6 @@ public class BigQueryIO {
       abstract Builder setBigQueryServices(BigQueryServices bigQueryServices);
 
       abstract Builder setParseFn(SerializableFunction<SchemaAndRecord, TableRow> parseFn);
-
-      abstract Builder setRowRestriction(ValueProvider<String> rowRestriction);
 
       abstract Builder setOutputCoder(Coder<TableRow> coder);
 
@@ -881,6 +883,8 @@ public class BigQueryIO {
       abstract Builder setBadRecordRouter(BadRecordRouter badRecordRouter);
 
       abstract DynamicRead build();
+
+      abstract Builder setKmsKey(String kmsKey);
 
       abstract Builder setQueryLocation(String queryLocation);
 
@@ -898,18 +902,18 @@ public class BigQueryIO {
       @ProcessElement
       public void processElement(
           OutputReceiver<BigQueryStorageStreamSource<TableRow>> receiver,
-          @Element KV<String, BigQueryDynamicReadDescriptor> descriptor,
+          @Element KV<String, BigQueryDynamicReadDescriptor> kv,
           PipelineOptions options)
           throws Exception {
 
-        if (descriptor.getValue().getTable() != null) {
+        BigQueryDynamicReadDescriptor descriptor = kv.getValue();
+        if (descriptor.getTable() != null) {
           BigQueryStorageTableSource<TableRow> output =
               BigQueryStorageTableSource.create(
-                  StaticValueProvider.of(
-                      BigQueryHelpers.parseTableSpec(descriptor.getValue().getTable())),
+                  StaticValueProvider.of(BigQueryHelpers.parseTableSpec(descriptor.getTable())),
                   getFormat(),
-                  null,
-                  getRowRestriction(),
+                  StaticValueProvider.of(descriptor.getSelectedFields()),
+                  StaticValueProvider.of(descriptor.getRowRestriction()),
                   getParseFn(),
                   getOutputCoder(),
                   getBigQueryServices(),
@@ -925,15 +929,15 @@ public class BigQueryIO {
           // run query
           BigQueryStorageQuerySource<TableRow> querySource =
               BigQueryStorageQuerySource.create(
-                  descriptor.getKey(),
-                  StaticValueProvider.of(descriptor.getValue().getQuery()),
-                  false, // todo transform param flattenResults
-                  false, // todo transform param legacySQL
+                  kv.getKey(),
+                  StaticValueProvider.of(descriptor.getQuery()),
+                  descriptor.getFlattenResults(),
+                  descriptor.getLegacySql(),
                   TypedRead.QueryPriority.INTERACTIVE,
                   getQueryLocation(),
                   getQueryTempDataset(),
                   getQueryTempProject(),
-                  null, // todo transform kmsKey param
+                  getKmsKey(),
                   getFormat(),
                   getParseFn(),
                   getOutputCoder(),
@@ -945,11 +949,11 @@ public class BigQueryIO {
                   StaticValueProvider.of(queryResultTable.getTableReference()),
                   getFormat(),
                   null,
-                  getRowRestriction(),
+                  null,
                   getParseFn(),
                   getOutputCoder(),
                   getBigQueryServices(),
-                  getProjectionPushdownApplied());
+                  false);
           // 1mb --> 1 shard; 1gb --> 32 shards; 1tb --> 1000 shards, 1pb --> 32k
           // shards
           long desiredChunkSize =

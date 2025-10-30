@@ -19,10 +19,12 @@ package org.apache.beam.sdk.io.gcp.bigquery;
 
 import com.google.auto.value.AutoValue;
 import java.io.Serializable;
+import java.util.List;
 import org.apache.beam.sdk.schemas.AutoValueSchema;
 import org.apache.beam.sdk.schemas.annotations.DefaultSchema;
 import org.apache.beam.sdk.schemas.annotations.SchemaCreate;
 import org.apache.beam.sdk.schemas.annotations.SchemaFieldName;
+import org.apache.beam.sdk.schemas.annotations.SchemaFieldNumber;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.checkerframework.dataflow.qual.Pure;
 
@@ -31,17 +33,44 @@ import org.checkerframework.dataflow.qual.Pure;
 @AutoValue
 public abstract class BigQueryDynamicReadDescriptor implements Serializable {
   @SchemaFieldName("query")
+  @SchemaFieldNumber("0")
   @Pure
   abstract @Nullable String getQuery();
 
   @SchemaFieldName("table")
+  @SchemaFieldNumber("1")
   @Pure
   abstract @Nullable String getTable();
 
+  @SchemaFieldName("flattenResults")
+  @SchemaFieldNumber("2")
+  @Pure
+  abstract @Nullable Boolean getFlattenResults();
+
+  @SchemaFieldName("legacySql")
+  @SchemaFieldNumber("3")
+  @Pure
+  abstract @Nullable Boolean getLegacySql();
+
+  @SchemaFieldName("selectedFields")
+  @SchemaFieldNumber("4")
+  @Pure
+  abstract @Nullable List<String> getSelectedFields();
+
+  @SchemaFieldName("rowRestriction")
+  @SchemaFieldNumber("5")
+  @Pure
+  abstract @Nullable String getRowRestriction();
+
   @SchemaCreate
-  @SuppressWarnings("all")
   public static BigQueryDynamicReadDescriptor create(
-      @Nullable String query, @Nullable String table) {
-    return new AutoValue_BigQueryDynamicReadDescriptor(query, table);
+      @Nullable String query,
+      @Nullable String table,
+      @Nullable Boolean flattenResults,
+      @Nullable Boolean legacySql,
+      @Nullable List<String> selectedFields,
+      @Nullable String rowRestriction) {
+    return new AutoValue_BigQueryDynamicReadDescriptor(
+        query, table, flattenResults, legacySql, selectedFields, rowRestriction);
   }
 }

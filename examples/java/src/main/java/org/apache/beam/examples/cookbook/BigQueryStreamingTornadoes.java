@@ -178,7 +178,8 @@ public class BigQueryStreamingTornadoes {
                 MapElements.into(TypeDescriptor.of(BigQueryDynamicReadDescriptor.class))
                     .via(
                         (Instant t) ->
-                            BigQueryDynamicReadDescriptor.create(null, WEATHER_SAMPLES_TABLE)));
+                            BigQueryDynamicReadDescriptor.create(
+                                null, WEATHER_SAMPLES_TABLE, null, null, null, null)));
 
     PCollection<TableRow> readDynamically =
         descriptors.apply("Read dynamically", BigQueryIO.readDynamicallyTableRows());
