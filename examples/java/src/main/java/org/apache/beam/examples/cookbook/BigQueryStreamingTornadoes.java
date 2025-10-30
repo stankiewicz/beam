@@ -47,8 +47,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * An example that reads periodically the public samples of weather data from BigQuery, counts the number of
- * tornadoes that occur in each month, and writes the results to BigQuery.
+ * An example that reads periodically the public samples of weather data from BigQuery, counts the
+ * number of tornadoes that occur in each month, and writes the results to BigQuery.
  *
  * <p>Concepts: Reading/writing BigQuery; counting a PCollection; user-defined PTransforms
  *
@@ -154,6 +154,7 @@ public class BigQueryStreamingTornadoes {
     BigQueryIO.Write.Method getWriteMethod();
 
     void setWriteMethod(BigQueryIO.Write.Method value);
+
     @Description(
         "BigQuery table to write to, specified as "
             + "<project_id>:<dataset_id>.<table_id>. The dataset must already exist.")
@@ -192,7 +193,6 @@ public class BigQueryStreamingTornadoes {
                 .withWriteDisposition(BigQueryIO.Write.WriteDisposition.WRITE_APPEND)
                 .withMethod(options.getWriteMethod()));
   }
-
 
   public static void runBigQueryTornadoes(Options options) {
     LOG.info("Running BigQuery Tornadoes with options " + options.toString());
