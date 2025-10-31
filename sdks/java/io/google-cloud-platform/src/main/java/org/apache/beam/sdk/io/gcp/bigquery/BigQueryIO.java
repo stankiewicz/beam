@@ -673,12 +673,26 @@ public class BigQueryIO {
   }
   /** @deprecated this method may have breaking changes introduced, use with caution */
   @Deprecated
-  public static DynamicRead readDynamicallyTableRows() {
-    return new AutoValue_BigQueryIO_DynamicRead.Builder()
+  public static DynamicRead<TableRow> readDynamicallyTableRows() {
+    return new AutoValue_BigQueryIO_DynamicRead.Builder<TableRow>()
         .setBigQueryServices(new BigQueryServicesImpl())
         .setParseFn(new TableRowParser())
         .setFormat(DataFormat.AVRO)
         .setOutputCoder(TableRowJsonCoder.of())
+        .setProjectionPushdownApplied(false)
+        .setBadRecordErrorHandler(new DefaultErrorHandler<>())
+        .setBadRecordRouter(BadRecordRouter.THROWING_ROUTER)
+        .build();
+  }
+  /** @deprecated this method may have breaking changes introduced, use with caution */
+  @Deprecated
+  public static <T> DynamicRead<T> readDynamically(
+      SerializableFunction<SchemaAndRecord, T> parseFn, Coder<T> outputCoder) {
+    return new AutoValue_BigQueryIO_DynamicRead.Builder<T>()
+        .setBigQueryServices(new BigQueryServicesImpl())
+        .setParseFn(parseFn)
+        .setFormat(DataFormat.AVRO)
+        .setOutputCoder(outputCoder)
         .setProjectionPushdownApplied(false)
         .setBadRecordErrorHandler(new DefaultErrorHandler<>())
         .setBadRecordRouter(BadRecordRouter.THROWING_ROUTER)
@@ -822,16 +836,16 @@ public class BigQueryIO {
   /** @deprecated this class may have breaking changes introduced, use with caution */
   @Deprecated
   @AutoValue
-  public abstract static class DynamicRead
-      extends PTransform<PCollection<BigQueryDynamicReadDescriptor>, PCollection<TableRow>> {
+  public abstract static class DynamicRead<T>
+      extends PTransform<PCollection<BigQueryDynamicReadDescriptor>, PCollection<T>> {
 
     abstract BigQueryServices getBigQueryServices();
 
     abstract DataFormat getFormat();
 
-    abstract @Nullable SerializableFunction<SchemaAndRecord, TableRow> getParseFn();
+    abstract @Nullable SerializableFunction<SchemaAndRecord, T> getParseFn();
 
-    abstract @Nullable Coder<TableRow> getOutputCoder();
+    abstract @Nullable Coder<T> getOutputCoder();
 
     abstract boolean getProjectionPushdownApplied();
 
@@ -847,68 +861,159 @@ public class BigQueryIO {
 
     abstract @Nullable String getKmsKey();
 
-    abstract DynamicRead.Builder toBuilder();
+    abstract DynamicRead.Builder<T> toBuilder();
 
-    public DynamicRead withQueryLocation(String location) {
+    public DynamicRead<T> withQueryLocation(String location) {
       return toBuilder().setQueryLocation(location).build();
     }
 
-    public DynamicRead withQueryTempProject(String tempProject) {
+    public DynamicRead<T> withQueryTempProject(String tempProject) {
       return toBuilder().setQueryTempProject(tempProject).build();
     }
 
-    public DynamicRead withQueryTempDataset(String tempDataset) {
+    public DynamicRead<T> withQueryTempDataset(String tempDataset) {
       return toBuilder().setQueryTempDataset(tempDataset).build();
     }
 
-    public DynamicRead withKmsKey(String kmsKey) {
+    public DynamicRead<T> withKmsKey(String kmsKey) {
       return toBuilder().setKmsKey(kmsKey).build();
     }
 
     @AutoValue.Builder
-    abstract static class Builder {
+    abstract static class Builder<T> {
 
-      abstract Builder setFormat(DataFormat format);
+      abstract Builder<T> setFormat(DataFormat format);
 
-      abstract Builder setBigQueryServices(BigQueryServices bigQueryServices);
+      abstract Builder<T> setBigQueryServices(BigQueryServices bigQueryServices);
 
-      abstract Builder setParseFn(SerializableFunction<SchemaAndRecord, TableRow> parseFn);
+      abstract Builder<T> setParseFn(SerializableFunction<SchemaAndRecord, T> parseFn);
 
-      abstract Builder setOutputCoder(Coder<TableRow> coder);
+      abstract Builder<T> setOutputCoder(Coder<T> coder);
 
-      abstract Builder setProjectionPushdownApplied(boolean projectionPushdownApplied);
+      abstract Builder<T> setProjectionPushdownApplied(boolean projectionPushdownApplied);
 
-      abstract Builder setBadRecordErrorHandler(ErrorHandler<BadRecord, ?> badRecordErrorHandler);
+      abstract Builder<T> setBadRecordErrorHandler(
+          ErrorHandler<BadRecord, ?> badRecordErrorHandler);
 
-      abstract Builder setBadRecordRouter(BadRecordRouter badRecordRouter);
+      abstract Builder<T> setBadRecordRouter(BadRecordRouter badRecordRouter);
 
-      abstract DynamicRead build();
+      abstract DynamicRead<T> build();
 
-      abstract Builder setKmsKey(String kmsKey);
+      abstract Builder<T> setKmsKey(String kmsKey);
 
-      abstract Builder setQueryLocation(String queryLocation);
+      abstract Builder<T> setQueryLocation(String queryLocation);
 
-      abstract Builder setQueryTempDataset(String queryTempDataset);
+      abstract Builder<T> setQueryTempDataset(String queryTempDataset);
 
-      abstract Builder setQueryTempProject(String queryTempProject);
+      abstract Builder<T> setQueryTempProject(String queryTempProject);
     }
 
     DynamicRead() {}
 
-    class CreateBoundedSourceForTable
-        extends DoFn<
-            KV<String, BigQueryDynamicReadDescriptor>, BigQueryStorageStreamSource<TableRow>> {
+    public static <T> void readSource(
+        PipelineOptions options,
+        TupleTag<T> rowTag,
+        MultiOutputReceiver outputReceiver,
+        BoundedSource<T> streamSource,
+        TypedRead.ErrorHandlingParseFn<T> errorHandlingParseFn,
+        BadRecordRouter badRecordRouter)
+        throws Exception {
+      // Read all the data from the stream. In the event that this work
+      // item fails and is rescheduled, the same rows will be returned in
+      // the same order.
+      BoundedSource.BoundedReader<T> reader = streamSource.createReader(options);
+
+      try {
+        if (reader.start()) {
+          outputReceiver.get(rowTag).output(reader.getCurrent());
+        } else {
+          return;
+        }
+      } catch (TypedRead.ParseException e) {
+        GenericRecord record = errorHandlingParseFn.getSchemaAndRecord().getRecord();
+        badRecordRouter.route(
+            outputReceiver,
+            record,
+            AvroCoder.of(record.getSchema()),
+            (Exception) e.getCause(),
+            "Unable to parse record reading from BigQuery");
+      }
+
+      while (true) {
+        try {
+          if (reader.advance()) {
+            outputReceiver.get(rowTag).output(reader.getCurrent());
+          } else {
+            return;
+          }
+        } catch (TypedRead.ParseException e) {
+          GenericRecord record = errorHandlingParseFn.getSchemaAndRecord().getRecord();
+          badRecordRouter.route(
+              outputReceiver,
+              record,
+              AvroCoder.of(record.getSchema()),
+              (Exception) e.getCause(),
+              "Unable to parse record reading from BigQuery");
+        }
+      }
+    }
+
+    private static class ReadTableSource<T> extends DoFn<BoundedSource<T>, T> {
+
+      private final TupleTag<T> rowTag;
+
+      private final SerializableFunction<SchemaAndRecord, T> parseFn;
+
+      private final BadRecordRouter badRecordRouter;
+
+      public ReadTableSource(
+          TupleTag<T> rowTag,
+          SerializableFunction<SchemaAndRecord, T> parseFn,
+          BadRecordRouter badRecordRouter) {
+        this.rowTag = rowTag;
+        this.parseFn = parseFn;
+        this.badRecordRouter = badRecordRouter;
+      }
 
       @ProcessElement
       public void processElement(
-          OutputReceiver<BigQueryStorageStreamSource<TableRow>> receiver,
+          @Element BoundedSource<T> boundedSource,
+          MultiOutputReceiver outputReceiver,
+          PipelineOptions options)
+          throws Exception {
+        TypedRead.ErrorHandlingParseFn<T> errorHandlingParseFn =
+            new TypedRead.ErrorHandlingParseFn<T>(parseFn);
+        BoundedSource<T> sourceWithErrorHandlingParseFn;
+        if (boundedSource instanceof BigQueryStorageStreamSource) {
+          sourceWithErrorHandlingParseFn =
+              ((BigQueryStorageStreamSource<T>) boundedSource).fromExisting(errorHandlingParseFn);
+        } else {
+          throw new RuntimeException(
+              "Bounded Source is not BigQueryStorageStreamSource, unable to read");
+        }
+        readSource(
+            options,
+            rowTag,
+            outputReceiver,
+            sourceWithErrorHandlingParseFn,
+            errorHandlingParseFn,
+            badRecordRouter);
+      }
+    }
+
+    class CreateBoundedSourceForTable
+        extends DoFn<KV<String, BigQueryDynamicReadDescriptor>, BigQueryStorageStreamSource<T>> {
+
+      @ProcessElement
+      public void processElement(
+          OutputReceiver<BigQueryStorageStreamSource<T>> receiver,
           @Element KV<String, BigQueryDynamicReadDescriptor> kv,
           PipelineOptions options)
           throws Exception {
 
         BigQueryDynamicReadDescriptor descriptor = kv.getValue();
         if (descriptor.getTable() != null) {
-          BigQueryStorageTableSource<TableRow> output =
+          BigQueryStorageTableSource<T> output =
               BigQueryStorageTableSource.create(
                   StaticValueProvider.of(BigQueryHelpers.parseTableSpec(descriptor.getTable())),
                   getFormat(),
@@ -922,12 +1027,11 @@ public class BigQueryIO {
           // shards
           long desiredChunkSize =
               Math.max(1 << 20, (long) (1000 * Math.sqrt(output.getEstimatedSizeBytes(options))));
-          List<BigQueryStorageStreamSource<TableRow>> split =
-              output.split(desiredChunkSize, options);
+          List<BigQueryStorageStreamSource<T>> split = output.split(desiredChunkSize, options);
           split.stream().forEach(source -> receiver.output(source));
         } else {
           // run query
-          BigQueryStorageQuerySource<TableRow> querySource =
+          BigQueryStorageQuerySource<T> querySource =
               BigQueryStorageQuerySource.create(
                   kv.getKey(),
                   StaticValueProvider.of(descriptor.getQuery()),
@@ -944,7 +1048,7 @@ public class BigQueryIO {
                   getBigQueryServices());
           Table queryResultTable = querySource.getTargetTable(options.as(BigQueryOptions.class));
 
-          BigQueryStorageTableSource<TableRow> output =
+          BigQueryStorageTableSource<T> output =
               BigQueryStorageTableSource.create(
                   StaticValueProvider.of(queryResultTable.getTableReference()),
                   getFormat(),
@@ -958,16 +1062,15 @@ public class BigQueryIO {
           // shards
           long desiredChunkSize =
               Math.max(1 << 20, (long) (1000 * Math.sqrt(output.getEstimatedSizeBytes(options))));
-          List<BigQueryStorageStreamSource<TableRow>> split =
-              output.split(desiredChunkSize, options);
+          List<BigQueryStorageStreamSource<T>> split = output.split(desiredChunkSize, options);
           split.stream().forEach(source -> receiver.output(source));
         }
       }
     }
 
     @Override
-    public PCollection<TableRow> expand(PCollection<BigQueryDynamicReadDescriptor> input) {
-      TupleTag<TableRow> rowTag = new TupleTag<>();
+    public PCollection<T> expand(PCollection<BigQueryDynamicReadDescriptor> input) {
+      TupleTag<T> rowTag = new TupleTag<>();
       PCollection<KV<String, BigQueryDynamicReadDescriptor>> addJobId =
           input
               .apply(
@@ -987,14 +1090,12 @@ public class BigQueryIO {
               .apply("Redistribute", Redistribute.arbitrarily())
               .apply(
                   "Read Streams with storage read api",
-                  ParDo.of(
-                          new TypedRead.ReadTableSource<TableRow>(
-                              rowTag, getParseFn(), getBadRecordRouter()))
+                  ParDo.of(new ReadTableSource<T>(rowTag, getParseFn(), getBadRecordRouter()))
                       .withOutputTags(rowTag, TupleTagList.of(BAD_RECORD_TAG)));
       getBadRecordErrorHandler()
           .addErrorCollection(
               resultTuple.get(BAD_RECORD_TAG).setCoder(BadRecord.getCoder(input.getPipeline())));
-      return resultTuple.get(rowTag).setCoder(TableRowJsonCoder.of());
+      return resultTuple.get(rowTag).setCoder(getOutputCoder());
     }
   }
 
