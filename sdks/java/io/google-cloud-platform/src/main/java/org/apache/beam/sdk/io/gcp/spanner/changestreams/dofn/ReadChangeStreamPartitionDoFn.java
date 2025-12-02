@@ -17,6 +17,8 @@
  */
 package org.apache.beam.sdk.io.gcp.spanner.changestreams.dofn;
 
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.context.Scope;
 import java.io.Serializable;
 import java.math.BigDecimal;
 import org.apache.beam.sdk.io.gcp.spanner.changestreams.ChangeStreamMetrics;
@@ -133,24 +135,31 @@ public class ReadChangeStreamPartitionDoFn extends DoFn<PartitionMetadata, DataC
    */
   @GetInitialRestriction
   public TimestampRange initialRestriction(@Element PartitionMetadata partition) {
-    final String token = partition.getPartitionToken();
-    final com.google.cloud.Timestamp startTimestamp = partition.getStartTimestamp();
-    // Range represents closed-open interval
-    final com.google.cloud.Timestamp endTimestamp =
-        TimestampUtils.next(partition.getEndTimestamp());
-    final com.google.cloud.Timestamp partitionScheduledAt = partition.getScheduledAt();
-    final com.google.cloud.Timestamp partitionRunningAt =
-        daoFactory.getPartitionMetadataDao().updateToRunning(token);
+    Span current = Span.current();
+    try (Scope scope = current.makeCurrent()) {
+      final String token = partition.getPartitionToken();
+      current.setAttribute("token", token);
+      current.addEvent("initial restriction");
+      final com.google.cloud.Timestamp startTimestamp = partition.getStartTimestamp();
+      // Range represents closed-open interval
+      final com.google.cloud.Timestamp endTimestamp =
+          TimestampUtils.next(partition.getEndTimestamp());
+      final com.google.cloud.Timestamp partitionScheduledAt = partition.getScheduledAt();
+      final com.google.cloud.Timestamp partitionRunningAt =
+          daoFactory.getPartitionMetadataDao().updateToRunning(token);
 
-    if (partitionScheduledAt != null && partitionRunningAt != null) {
-      metrics.updatePartitionScheduledToRunning(
-          new Duration(
-              partitionScheduledAt.toSqlTimestamp().getTime(),
-              partitionRunningAt.toSqlTimestamp().getTime()));
+      if (partitionScheduledAt != null && partitionRunningAt != null) {
+        metrics.updatePartitionScheduledToRunning(
+            new Duration(
+                partitionScheduledAt.toSqlTimestamp().getTime(),
+                partitionRunningAt.toSqlTimestamp().getTime()));
+      }
+
+      metrics.incActivePartitionReadCounter();
+      return TimestampRange.of(startTimestamp, endTimestamp);
+    } finally {
+      current.end();
     }
-
-    metrics.incActivePartitionReadCounter();
-    return TimestampRange.of(startTimestamp, endTimestamp);
   }
 
   @GetSize
@@ -242,11 +251,16 @@ public class ReadChangeStreamPartitionDoFn extends DoFn<PartitionMetadata, DataC
       BundleFinalizer bundleFinalizer) {
 
     final String token = partition.getPartitionToken();
+    Span current = Span.current();
+    try (Scope scope = current.makeCurrent()) {
+      current.setAttribute("token", token);
+      LOG.debug("[{}] Processing element with restriction {}", token, tracker.currentRestriction());
 
-    LOG.debug("[{}] Processing element with restriction {}", token, tracker.currentRestriction());
-
-    return queryChangeStreamAction.run(
-        partition, tracker, receiver, watermarkEstimator, bundleFinalizer);
+      return queryChangeStreamAction.run(
+          partition, tracker, receiver, watermarkEstimator, bundleFinalizer);
+    } finally {
+      current.end();
+    }
   }
 
   /**
