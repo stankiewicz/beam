@@ -185,6 +185,9 @@ public class Redistribute {
                       .setTimestamp(kv.getValue().getTimestamp())
                       .setWindow(kv.getValue().getWindow())
                       .setPaneInfo(kv.getValue().getPaneInfo())
+                      .setRecordOffset(kv.getValue().getCurrentRecordOffset())
+                      .setRecordId(kv.getValue().getCurrentRecordId())
+                      .setContext(kv.getValue().getContext())
                       .output();
                 }
               }));

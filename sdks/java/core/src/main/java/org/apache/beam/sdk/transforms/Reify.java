@@ -98,9 +98,18 @@ public class Reify {
                         @DoFn.Timestamp Instant timestamp,
                         BoundedWindow window,
                         PaneInfo paneInfo,
+                        ProcessContext pc,
                         OutputReceiver<ValueInSingleWindow<T>> r) {
                       r.outputWithTimestamp(
-                          ValueInSingleWindow.of(element, timestamp, window, paneInfo), timestamp);
+                          ValueInSingleWindow.of(
+                              element,
+                              timestamp,
+                              window,
+                              paneInfo,
+                              null,
+                              null,
+                              pc.openTelemetryContext()),
+                          timestamp);
                     }
                   }))
           .setCoder(
@@ -144,13 +153,21 @@ public class Reify {
                         @Element KV<K, V> element,
                         @DoFn.Timestamp Instant timestamp,
                         BoundedWindow window,
+                        // todo replace with parameters
                         PaneInfo paneInfo,
+                        ProcessContext pc,
                         OutputReceiver<KV<K, ValueInSingleWindow<V>>> r) {
                       r.output(
                           KV.of(
                               element.getKey(),
                               ValueInSingleWindow.of(
-                                  element.getValue(), timestamp, window, paneInfo)));
+                                  element.getValue(),
+                                  timestamp,
+                                  window,
+                                  paneInfo,
+                                  null,
+                                  null,
+                                  pc.openTelemetryContext())));
                     }
                   }))
           .setCoder(

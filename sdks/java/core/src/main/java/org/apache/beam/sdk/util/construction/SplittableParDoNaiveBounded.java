@@ -19,6 +19,7 @@ package org.apache.beam.sdk.util.construction;
 
 import static org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.base.Preconditions.checkArgument;
 
+import io.opentelemetry.context.Context;
 import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -676,6 +677,11 @@ public class SplittableParDoNaiveBounded {
       @Override
       public Long currentRecordOffset() {
         return outerContext.currentRecordOffset();
+      }
+
+      @Override
+      public @Nullable Context openTelemetryContext() {
+        return outerContext.openTelemetryContext();
       }
 
       @Override

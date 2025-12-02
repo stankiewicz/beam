@@ -20,6 +20,7 @@ package org.apache.beam.runners.core;
 import static org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.base.Preconditions.checkNotNull;
 import static org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.base.Preconditions.checkState;
 
+import io.opentelemetry.context.Context;
 import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.CancellationException;
@@ -394,6 +395,11 @@ public class OutputAndTimeBoundedSplittableProcessElementInvoker<
     @Override
     public @Nullable Long currentRecordOffset() {
       return element.getRecordOffset();
+    }
+
+    @Override
+    public @Nullable Context openTelemetryContext() {
+      return element.getContext();
     }
 
     @Override

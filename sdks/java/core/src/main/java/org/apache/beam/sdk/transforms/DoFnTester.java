@@ -20,6 +20,7 @@ package org.apache.beam.sdk.transforms;
 import static org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.base.Preconditions.checkNotNull;
 import static org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.base.Preconditions.checkState;
 
+import io.opentelemetry.context.Context;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -587,6 +588,11 @@ public class DoFnTester<InputT, OutputT> implements AutoCloseable {
     @Override
     public Long currentRecordOffset() {
       return element.getCurrentRecordOffset();
+    }
+
+    @Override
+    public @Nullable Context openTelemetryContext() {
+      return null;
     }
 
     @Override

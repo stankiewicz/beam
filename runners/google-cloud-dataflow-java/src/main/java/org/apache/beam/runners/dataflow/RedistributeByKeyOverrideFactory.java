@@ -135,12 +135,13 @@ class RedistributeByKeyOverrideFactory<K, V>
                 public void processElement(
                     @Element KV<K, ValueInSingleWindow<V>> kv,
                     OutputReceiver<KV<K, V>> outputReceiver) {
-                  // todo #33176 specify additional metadata in the future
+                  // additional metadata is propagated by outputBuilder
                   outputReceiver
                       .builder(KV.of(kv.getKey(), kv.getValue().getValue()))
                       .setTimestamp(kv.getValue().getTimestamp())
                       .setWindow(kv.getValue().getWindow())
                       .setPaneInfo(kv.getValue().getPaneInfo())
+                      .setContext(kv.getValue().getContext())
                       .output();
                 }
               }));

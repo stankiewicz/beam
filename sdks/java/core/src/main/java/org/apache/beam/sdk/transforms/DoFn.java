@@ -18,6 +18,7 @@
 package org.apache.beam.sdk.transforms;
 
 import com.google.auto.value.AutoValue;
+import io.opentelemetry.context.Context;
 import java.io.Serializable;
 import java.lang.annotation.Documented;
 import java.lang.annotation.ElementType;
@@ -330,6 +331,9 @@ public abstract class DoFn<InputT extends @Nullable Object, OutputT extends @Nul
 
     @Pure
     public abstract @Nullable Long currentRecordOffset();
+
+    @Pure
+    public abstract @Nullable Context openTelemetryContext();
   }
 
   /** Information accessible when running a {@link DoFn.OnTimer} method. */

@@ -22,6 +22,7 @@ import static org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.base.Pr
 import static org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.base.Preconditions.checkState;
 
 import com.google.auto.service.AutoService;
+import io.opentelemetry.context.Context;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -156,7 +157,8 @@ public class FnApiDoFnRunner<InputT, RestrictionT, PositionT, WatermarkEstimator
       implements PTransformRunnerFactory {
 
     @Override
-    public final void addRunnerForPTransform(Context context) throws IOException {
+    public final void addRunnerForPTransform(PTransformRunnerFactory.Context context)
+        throws IOException {
 
       FnApiStateAccessor<Object> stateAccessor =
           FnApiStateAccessor.Factory.factoryForPTransformContext(context).create();
@@ -1848,6 +1850,11 @@ public class FnApiDoFnRunner<InputT, RestrictionT, PositionT, WatermarkEstimator
           currentElement.getTimestamp(),
           currentElement.getPaneInfo());
     }
+
+    @Override
+    public @Nullable Context openTelemetryContext() {
+      return currentElement.getContext();
+    }
   }
 
   /** Provides arguments for a {@link DoFnInvoker} for a non-window observing method. */
@@ -1928,6 +1935,11 @@ public class FnApiDoFnRunner<InputT, RestrictionT, PositionT, WatermarkEstimator
         throw new IllegalArgumentException(String.format("Unknown output tag %s", tag));
       }
       outputTo(consumer, WindowedValues.of(output, timestamp, windows, paneInfo));
+    }
+
+    @Override
+    public @Nullable Context openTelemetryContext() {
+      return currentElement.getContext();
     }
   }
 

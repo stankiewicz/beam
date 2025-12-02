@@ -21,6 +21,8 @@ import static org.apache.beam.sdk.util.Preconditions.checkStateNotNull;
 import static org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.base.Preconditions.checkArgument;
 import static org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.base.Preconditions.checkNotNull;
 
+import io.opentelemetry.context.Context;
+import io.opentelemetry.context.Scope;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -183,12 +185,17 @@ public class SimpleDoFnRunner<InputT, OutputT> implements DoFnRunner<InputT, Out
 
   @Override
   public void processElement(WindowedValue<InputT> compressedElem) {
-    if (observesWindow) {
-      for (WindowedValue<InputT> elem : compressedElem.explodeWindows()) {
-        invokeProcessElement(elem);
+    Context context = compressedElem.getContext();
+    // currently attached scope in ContextStorage may be already applied, then it will be noop,
+    // otherwise, attach what came with windowedValue
+    try (Scope scope = context != null ? context.makeCurrent() : Context.root().makeCurrent()) {
+      if (observesWindow) {
+        for (WindowedValue<InputT> elem : compressedElem.explodeWindows()) {
+          invokeProcessElement(elem);
+        }
+      } else {
+        invokeProcessElement(compressedElem);
       }
-    } else {
-      invokeProcessElement(compressedElem);
     }
   }
 
@@ -205,7 +212,10 @@ public class SimpleDoFnRunner<InputT, OutputT> implements DoFnRunner<InputT, Out
 
     OnTimerArgumentProvider<KeyT> argumentProvider =
         new OnTimerArgumentProvider<>(timerId, key, window, timestamp, outputTimestamp, timeDomain);
-    invoker.invokeOnTimer(timerId, timerFamilyId, argumentProvider);
+    try (Scope scope = Context.root().makeCurrent()) {
+      // todo: figure out if we can link timer to the trace that set the timer
+      invoker.invokeOnTimer(timerId, timerFamilyId, argumentProvider);
+    }
   }
 
   private void invokeProcessElement(WindowedValue<InputT> elem) {
@@ -456,6 +466,7 @@ public class SimpleDoFnRunner<InputT, OutputT> implements DoFnRunner<InputT, Out
           .setTimestamp(timestamp)
           .setWindows(windows)
           .setPaneInfo(paneInfo)
+          .setContext(Context.current())
           .setReceiver(
               wv -> {
                 checkTimestamp(elem.getTimestamp(), wv.getTimestamp());
@@ -477,6 +488,11 @@ public class SimpleDoFnRunner<InputT, OutputT> implements DoFnRunner<InputT, Out
     @Override
     public @Nullable Long currentRecordOffset() {
       return elem.getRecordOffset();
+    }
+
+    @Override
+    public @Nullable Context openTelemetryContext() {
+      return elem.getContext();
     }
 
     public Collection<? extends BoundedWindow> windows() {
