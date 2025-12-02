@@ -761,6 +761,8 @@ message Elements {
   // extensible and backward compatible
   message ElementMetadata {
     optional DrainMode.Enum drain = 1;
+    optional string traceparent = 2;
+    optional string tracestate = 3;
   }
 
   // Represent the encoded user timer for a given instruction, transform and
