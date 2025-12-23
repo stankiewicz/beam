@@ -208,6 +208,15 @@ dependencies {
     implementation library.java.jackson_databind
     implementation library.java.joda_time
     implementation library.java.slf4j_api
+    implementation library.java.opentelemetry_sdk
+    implementation library.java.opentelemetry_context
+    implementation library.java.opentelemetry_exporter_otlp
+    implementation library.java.opentelemetry_gcp_auth
+    implementation library.java.opentelemetry_extension_autoconfigure
+    permitUnusedDeclared library.java.opentelemetry_extension_autoconfigure
+    permitUnusedDeclared library.java.opentelemetry_exporter_otlp
+    permitUnusedDeclared library.java.opentelemetry_gcp_auth
+    permitUnusedDeclared library.java.opentelemetry_sdk
     implementation library.java.vendored_grpc_1_69_0
     implementation library.java.error_prone_annotations
     permitUnusedDeclared library.java.error_prone_annotations
