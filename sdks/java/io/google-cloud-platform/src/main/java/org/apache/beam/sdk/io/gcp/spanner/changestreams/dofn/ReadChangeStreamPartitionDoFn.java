@@ -18,6 +18,7 @@
 package org.apache.beam.sdk.io.gcp.spanner.changestreams.dofn;
 
 import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.context.Scope;
 import java.io.Serializable;
 import java.math.BigDecimal;
@@ -44,6 +45,8 @@ import org.apache.beam.sdk.io.gcp.spanner.changestreams.model.PartitionMetadata;
 import org.apache.beam.sdk.io.gcp.spanner.changestreams.restriction.ReadChangeStreamPartitionRangeTracker;
 import org.apache.beam.sdk.io.gcp.spanner.changestreams.restriction.TimestampRange;
 import org.apache.beam.sdk.io.gcp.spanner.changestreams.restriction.TimestampUtils;
+import org.apache.beam.sdk.options.PipelineOptions;
+import org.apache.beam.sdk.options.SdkHarnessOptions;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.DoFn.UnboundedPerElement;
 import org.apache.beam.sdk.transforms.splittabledofn.ManualWatermarkEstimator;
@@ -75,6 +78,7 @@ public class ReadChangeStreamPartitionDoFn extends DoFn<PartitionMetadata, DataC
   private final MapperFactory mapperFactory;
   private final ActionFactory actionFactory;
   private final ChangeStreamMetrics metrics;
+  private Tracer spannerChangeStreamSDF;
   /**
    * Needs to be set through the {@link
    * ReadChangeStreamPartitionDoFn#setThroughputEstimator(BytesThroughputEstimator)} call.
@@ -135,31 +139,25 @@ public class ReadChangeStreamPartitionDoFn extends DoFn<PartitionMetadata, DataC
    */
   @GetInitialRestriction
   public TimestampRange initialRestriction(@Element PartitionMetadata partition) {
-    Span current = Span.current();
-    try (Scope scope = current.makeCurrent()) {
-      final String token = partition.getPartitionToken();
-      current.setAttribute("token", token);
-      current.addEvent("initial restriction");
-      final com.google.cloud.Timestamp startTimestamp = partition.getStartTimestamp();
-      // Range represents closed-open interval
-      final com.google.cloud.Timestamp endTimestamp =
-          TimestampUtils.next(partition.getEndTimestamp());
-      final com.google.cloud.Timestamp partitionScheduledAt = partition.getScheduledAt();
-      final com.google.cloud.Timestamp partitionRunningAt =
-          daoFactory.getPartitionMetadataDao().updateToRunning(token);
+    final String token = partition.getPartitionToken();
 
-      if (partitionScheduledAt != null && partitionRunningAt != null) {
-        metrics.updatePartitionScheduledToRunning(
-            new Duration(
-                partitionScheduledAt.toSqlTimestamp().getTime(),
-                partitionRunningAt.toSqlTimestamp().getTime()));
-      }
+    final com.google.cloud.Timestamp startTimestamp = partition.getStartTimestamp();
+    // Range represents closed-open interval
+    final com.google.cloud.Timestamp endTimestamp =
+        TimestampUtils.next(partition.getEndTimestamp());
+    final com.google.cloud.Timestamp partitionScheduledAt = partition.getScheduledAt();
+    final com.google.cloud.Timestamp partitionRunningAt =
+        daoFactory.getPartitionMetadataDao().updateToRunning(token);
 
-      metrics.incActivePartitionReadCounter();
-      return TimestampRange.of(startTimestamp, endTimestamp);
-    } finally {
-      current.end();
+    if (partitionScheduledAt != null && partitionRunningAt != null) {
+      metrics.updatePartitionScheduledToRunning(
+          new Duration(
+              partitionScheduledAt.toSqlTimestamp().getTime(),
+              partitionRunningAt.toSqlTimestamp().getTime()));
     }
+
+    metrics.incActivePartitionReadCounter();
+    return TimestampRange.of(startTimestamp, endTimestamp);
   }
 
   @GetSize
@@ -193,7 +191,11 @@ public class ReadChangeStreamPartitionDoFn extends DoFn<PartitionMetadata, DataC
    * PartitionEventRecordAction} and {@link QueryChangeStreamAction}.
    */
   @Setup
-  public void setup() {
+  public void setup(PipelineOptions options) {
+    SdkHarnessOptions sdkHarnessOptions = options.as(SdkHarnessOptions.class);
+    spannerChangeStreamSDF =
+        sdkHarnessOptions.getOpenTelemetry().getTracer("SpannerChangeStreamSDF");
+
     final PartitionMetadataDao partitionMetadataDao = daoFactory.getPartitionMetadataDao();
     final ChangeStreamDao changeStreamDao = daoFactory.getChangeStreamDao();
     final ChangeStreamRecordMapper changeStreamRecordMapper =
@@ -251,7 +253,10 @@ public class ReadChangeStreamPartitionDoFn extends DoFn<PartitionMetadata, DataC
       BundleFinalizer bundleFinalizer) {
 
     final String token = partition.getPartitionToken();
-    Span current = Span.current();
+    Span current =
+        spannerChangeStreamSDF
+            .spanBuilder("ReadChangeStreamPartitionDoFn.processElement")
+            .startSpan();
     try (Scope scope = current.makeCurrent()) {
       current.setAttribute("token", token);
       LOG.debug("[{}] Processing element with restriction {}", token, tracker.currentRestriction());

@@ -39,6 +39,17 @@ artifact includes all Apache Beam Java SDK examples."""
 apply from: "$projectDir/common.gradle"
 
 dependencies {
+  implementation project(path: ":runners:google-cloud-dataflow-java")
+  implementation project(path: ":sdks:java:harness")
+  implementation library.java.opentelemetry_sdk
+  implementation library.java.opentelemetry_context
+  implementation library.java.opentelemetry_exporter_otlp
+  implementation library.java.opentelemetry_gcp_auth
+  implementation library.java.opentelemetry_extension_autoconfigure
+  permitUnusedDeclared library.java.opentelemetry_extension_autoconfigure
+  permitUnusedDeclared library.java.opentelemetry_exporter_otlp
+  permitUnusedDeclared library.java.opentelemetry_gcp_auth
+  permitUnusedDeclared library.java.opentelemetry_sdk
   implementation enforcedPlatform(library.java.google_cloud_platform_libraries_bom)
   implementation library.java.vendored_guava_32_1_2_jre
   if (project.findProperty('testJavaVersion') == '21' || JavaVersion.current().compareTo(JavaVersion.VERSION_21) >= 0) {
@@ -62,6 +73,7 @@ dependencies {
   implementation library.java.google_api_services_pubsub
   implementation library.java.google_auth_library_credentials
   implementation library.java.google_auth_library_oauth2_http
+  implementation library.java.google_cloud_core
   implementation library.java.google_cloud_datastore_v1_proto_client
   implementation library.java.google_code_gson
   implementation library.java.google_http_client

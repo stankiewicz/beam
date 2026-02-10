@@ -79,7 +79,8 @@ public class QueryChangeStreamAction {
    * will be committed instead of thrown away (DEADLINE_EXCEEDED). The value should be less than
    * the RetrySetting RPC timeout setting of SpannerIO#ReadChangeStream.
    */
-  private static final Duration RESTRICTION_TRACKER_TIMEOUT = Duration.standardSeconds(40);
+  private static final Duration RESTRICTION_TRACKER_TIMEOUT =
+      Duration.standardSeconds(40); // Duration.millis(500);
   private static final String OUT_OF_RANGE_ERROR_MESSAGE = "Specified start_timestamp is invalid";
 
   private final ChangeStreamDao changeStreamDao;
@@ -180,7 +181,7 @@ public class QueryChangeStreamAction {
       ManualWatermarkEstimator<Instant> watermarkEstimator,
       BundleFinalizer bundleFinalizer) {
     SpanBuilder spanBuilder =
-        GlobalOpenTelemetry.get().getTracer("QueryCDC").spanBuilder("QueryCDC");
+        GlobalOpenTelemetry.get().getTracer("QueryCDC").spanBuilder("QueryChangeStreamAction.run");
     Span newSpan = spanBuilder.startSpan();
     try (Scope scope = newSpan.makeCurrent()) {
 
@@ -203,8 +204,7 @@ public class QueryChangeStreamAction {
       final Timestamp startTimestamp = tracker.currentRestriction().getFrom();
       final Timestamp endTimestamp = partition.getEndTimestamp();
       final boolean isBoundedRestriction = !endTimestamp.equals(MAX_INCLUSIVE_END_AT);
-      final Timestamp changeStreamQueryEndTimestamp =
-          isBoundedRestriction ? endTimestamp : getNextReadChangeStreamEndTimestamp();
+      final Timestamp changeStreamQueryEndTimestamp = getNextReadChangeStreamEndTimestampSDF();
 
       // Once the changeStreamQuery completes we may need to resume reading from the partition if we
       // had an unbounded restriction for which we set an arbitrary query end timestamp and for
@@ -213,21 +213,25 @@ public class QueryChangeStreamAction {
       // exceptions about being out of timestamp range).
       boolean stopAfterQuerySucceeds = isBoundedRestriction;
       newSpan.addEvent("about to query");
+      newSpan.setAttribute("start_ts", startTimestamp.toString());
+      newSpan.setAttribute("end_ts", endTimestamp.toString());
       try (ChangeStreamResultSet resultSet =
           changeStreamDao.changeStreamQuery(
               token,
               startTimestamp,
               changeStreamQueryEndTimestamp,
               partition.getHeartbeatMillis())) {
-        newSpan.addEvent("got result set, iterating");
         metrics.incQueryCounter();
+        newSpan.addEvent("got result set, iterating");
         while (resultSet.next()) {
+          newSpan.addEvent("next record");
           final List<ChangeStreamRecord> records =
               changeStreamRecordMapper.toChangeStreamRecords(
                   updatedPartition, resultSet, resultSet.getMetadata());
           Optional<ProcessContinuation> maybeContinuation;
           for (final ChangeStreamRecord record : records) {
             if (record instanceof DataChangeRecord) {
+              newSpan.addEvent("dataChangeRecordAction -> run");
               maybeContinuation =
                   dataChangeRecordAction.run(
                       updatedPartition,
@@ -237,6 +241,7 @@ public class QueryChangeStreamAction {
                       receiver,
                       watermarkEstimator);
             } else if (record instanceof HeartbeatRecord) {
+              newSpan.addEvent("HeartbeatRecord -> run");
               maybeContinuation =
                   heartbeatRecordAction.run(
                       updatedPartition,
@@ -245,6 +250,7 @@ public class QueryChangeStreamAction {
                       interrupter,
                       watermarkEstimator);
             } else if (record instanceof ChildPartitionsRecord) {
+              newSpan.addEvent("ChildPartitionsRecord -> run");
               maybeContinuation =
                   childPartitionsRecordAction.run(
                       updatedPartition,
@@ -257,6 +263,7 @@ public class QueryChangeStreamAction {
               // will be returned by the query and processed if it finishes successfully.
               stopAfterQuerySucceeds = true;
             } else if (record instanceof PartitionStartRecord) {
+              newSpan.addEvent("PartitionStartRecord -> run");
               maybeContinuation =
                   partitionStartRecordAction.run(
                       updatedPartition,
@@ -265,6 +272,7 @@ public class QueryChangeStreamAction {
                       interrupter,
                       watermarkEstimator);
             } else if (record instanceof PartitionEndRecord) {
+              newSpan.addEvent("PartitionEndRecord -> run");
               maybeContinuation =
                   partitionEndRecordAction.run(
                       updatedPartition,
@@ -276,6 +284,7 @@ public class QueryChangeStreamAction {
               // for this partition.
               stopAfterQuerySucceeds = true;
             } else if (record instanceof PartitionEventRecord) {
+              newSpan.addEvent("PartitionEventRecord -> run");
               maybeContinuation =
                   partitionEventRecordAction.run(
                       updatedPartition,
@@ -401,5 +410,10 @@ public class QueryChangeStreamAction {
   private Timestamp getNextReadChangeStreamEndTimestamp() {
     final Timestamp current = Timestamp.now();
     return Timestamp.ofTimeSecondsAndNanos(current.getSeconds() + 2 * 60, current.getNanos());
+  }
+
+  private Timestamp getNextReadChangeStreamEndTimestampSDF() {
+    final Timestamp current = Timestamp.now();
+    return Timestamp.ofTimeSecondsAndNanos(current.getSeconds() + 2, current.getNanos());
   }
 }

@@ -18,6 +18,9 @@
 package org.apache.beam.sdk.io.gcp.spanner.changestreams.action;
 
 import com.google.cloud.Timestamp;
+import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.context.Scope;
 import java.util.Optional;
 import org.apache.beam.sdk.io.gcp.spanner.changestreams.dofn.ReadChangeStreamPartitionDoFn;
 import org.apache.beam.sdk.io.gcp.spanner.changestreams.estimator.ThroughputEstimator;
@@ -86,29 +89,41 @@ public class DataChangeRecordAction {
       RestrictionInterrupter<Timestamp> interrupter,
       OutputReceiver<DataChangeRecord> outputReceiver,
       ManualWatermarkEstimator<Instant> watermarkEstimator) {
+    Span span =
+        GlobalOpenTelemetry.get()
+            .getTracer("QueryCDC")
+            .spanBuilder("DataChangeRecordAction.run")
+            .startSpan();
+    try (Scope s = span.makeCurrent()) {
+      final String token = partition.getPartitionToken();
+      LOG.debug("[{}] Processing data record {}", token, record.getCommitTimestamp());
 
-    final String token = partition.getPartitionToken();
-    LOG.debug("[{}] Processing data record {}", token, record.getCommitTimestamp());
+      final Timestamp commitTimestamp = record.getCommitTimestamp();
+      final Instant commitInstant = new Instant(commitTimestamp.toSqlTimestamp().getTime());
+      if (interrupter.tryInterrupt(commitTimestamp)) {
+        LOG.debug(
+            "[{}] Soft deadline reached with data change record at {}, rescheduling",
+            token,
+            commitTimestamp);
+        return Optional.of(ProcessContinuation.resume());
+      }
+      span.addEvent("about to claim");
+      if (!tracker.tryClaim(commitTimestamp)) {
+        LOG.debug("[{}] Could not claim queryChangeStream({}), stopping", token, commitTimestamp);
+        return Optional.of(ProcessContinuation.stop());
+      }
+      span.addEvent("about to output");
+      outputReceiver.outputWithTimestamp(record, commitInstant);
+      span.addEvent("finished output");
+      watermarkEstimator.setWatermark(commitInstant);
 
-    final Timestamp commitTimestamp = record.getCommitTimestamp();
-    final Instant commitInstant = new Instant(commitTimestamp.toSqlTimestamp().getTime());
-    if (interrupter.tryInterrupt(commitTimestamp)) {
-      LOG.debug(
-          "[{}] Soft deadline reached with data change record at {}, rescheduling",
-          token,
-          commitTimestamp);
-      return Optional.of(ProcessContinuation.resume());
+      throughputEstimator.update(Timestamp.now(), record);
+
+      LOG.debug("[{}] Data record action completed successfully", token);
+      Span.current().addEvent("returning");
+      return Optional.empty();
+    } finally {
+      span.end();
     }
-    if (!tracker.tryClaim(commitTimestamp)) {
-      LOG.debug("[{}] Could not claim queryChangeStream({}), stopping", token, commitTimestamp);
-      return Optional.of(ProcessContinuation.stop());
-    }
-    outputReceiver.outputWithTimestamp(record, commitInstant);
-    watermarkEstimator.setWatermark(commitInstant);
-
-    throughputEstimator.update(Timestamp.now(), record);
-
-    LOG.debug("[{}] Data record action completed successfully", token);
-    return Optional.empty();
   }
 }

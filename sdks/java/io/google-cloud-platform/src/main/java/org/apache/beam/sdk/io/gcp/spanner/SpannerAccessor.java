@@ -37,6 +37,7 @@ import com.google.spanner.v1.CommitRequest;
 import com.google.spanner.v1.CommitResponse;
 import com.google.spanner.v1.ExecuteSqlRequest;
 import com.google.spanner.v1.PartialResultSet;
+import io.opentelemetry.api.GlobalOpenTelemetry;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -112,7 +113,12 @@ public class SpannerAccessor implements AutoCloseable {
   @VisibleForTesting
   static SpannerOptions buildSpannerOptions(SpannerConfig spannerConfig) {
     SpannerOptions.Builder builder = SpannerOptions.newBuilder();
-
+    builder.setEnableExtendedTracing(true);
+    builder.setEnableEndToEndTracing(true);
+    builder.setEnableApiTracing(true);
+    SpannerOptions.disableOpenCensusMetrics();
+    SpannerOptions.enableOpenTelemetryMetrics();
+    SpannerOptions.enableOpenTelemetryTraces();
     Set<Code> retryableCodes = new HashSet<>();
     if (spannerConfig.getRetryableCodes() != null) {
       retryableCodes.addAll(spannerConfig.getRetryableCodes());
@@ -145,6 +151,7 @@ public class SpannerAccessor implements AutoCloseable {
         .streamingReadSettings()
         .setRetryableCodes(streamingMethodRetryableCodes);
 
+    builder.setOpenTelemetry(GlobalOpenTelemetry.get());
     // Set commit retry settings
     UnaryCallSettings.Builder<CommitRequest, CommitResponse> commitSettings =
         builder.getSpannerStubSettingsBuilder().commitSettings();
@@ -273,6 +280,7 @@ public class SpannerAccessor implements AutoCloseable {
     Spanner spanner = options.getService();
     String instanceId = spannerConfig.getInstanceId().get();
     String databaseId = spannerConfig.getDatabaseId().get();
+
     DatabaseClient databaseClient =
         spanner.getDatabaseClient(DatabaseId.of(options.getProjectId(), instanceId, databaseId));
     BatchClient batchClient =
