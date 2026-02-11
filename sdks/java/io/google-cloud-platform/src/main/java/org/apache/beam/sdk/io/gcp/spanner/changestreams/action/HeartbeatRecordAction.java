@@ -18,6 +18,9 @@
 package org.apache.beam.sdk.io.gcp.spanner.changestreams.action;
 
 import com.google.cloud.Timestamp;
+import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.context.Scope;
 import java.util.Optional;
 import org.apache.beam.sdk.io.gcp.spanner.changestreams.ChangeStreamMetrics;
 import org.apache.beam.sdk.io.gcp.spanner.changestreams.model.HeartbeatRecord;
@@ -77,25 +80,38 @@ public class HeartbeatRecordAction {
       RestrictionTracker<TimestampRange, Timestamp> tracker,
       RestrictionInterrupter<Timestamp> interrupter,
       ManualWatermarkEstimator<Instant> watermarkEstimator) {
+    Span span =
+        GlobalOpenTelemetry.get()
+            .getTracer("QueryCDC")
+            .spanBuilder("HeartbeatRecordAction.run")
+            .startSpan();
+    try (Scope s = span.makeCurrent()) {
+      final String token = partition.getPartitionToken();
+      LOG.debug("[{}] Processing heartbeat record {}", token, record);
 
-    final String token = partition.getPartitionToken();
-    LOG.debug("[{}] Processing heartbeat record {}", token, record);
+      final Timestamp timestamp = record.getTimestamp();
+      final Instant timestampInstant = new Instant(timestamp.toSqlTimestamp().getTime());
+      span.addEvent("about to try interrupt");
+      if (interrupter.tryInterrupt(timestamp)) {
+        LOG.debug(
+            "[{}] Soft deadline reached with heartbeat record at {}, rescheduling",
+            token,
+            timestamp);
+        return Optional.of(ProcessContinuation.resume());
+      }
+      span.addEvent("about to claim");
+      if (!tracker.tryClaim(timestamp)) {
+        LOG.debug("[{}] Could not claim queryChangeStream({}), stopping", token, timestamp);
+        return Optional.of(ProcessContinuation.stop());
+      }
+      metrics.incHeartbeatRecordCount();
+      watermarkEstimator.setWatermark(timestampInstant);
 
-    final Timestamp timestamp = record.getTimestamp();
-    final Instant timestampInstant = new Instant(timestamp.toSqlTimestamp().getTime());
-    if (interrupter.tryInterrupt(timestamp)) {
-      LOG.debug(
-          "[{}] Soft deadline reached with heartbeat record at {}, rescheduling", token, timestamp);
-      return Optional.of(ProcessContinuation.resume());
+      LOG.debug("[{}] Heartbeat record action completed successfully", token);
+      span.addEvent("returning");
+      return Optional.empty();
+    } finally {
+      span.end();
     }
-    if (!tracker.tryClaim(timestamp)) {
-      LOG.debug("[{}] Could not claim queryChangeStream({}), stopping", token, timestamp);
-      return Optional.of(ProcessContinuation.stop());
-    }
-    metrics.incHeartbeatRecordCount();
-    watermarkEstimator.setWatermark(timestampInstant);
-
-    LOG.debug("[{}] Heartbeat record action completed successfully", token);
-    return Optional.empty();
   }
 }

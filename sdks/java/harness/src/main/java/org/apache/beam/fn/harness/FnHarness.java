@@ -19,6 +19,7 @@ package org.apache.beam.fn.harness;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.opentelemetry.api.internal.ConfigUtil;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -299,6 +300,18 @@ public class FnHarness {
       // Register standard file systems.
       FileSystems.setDefaultPipelineOptions(options);
       CoderTranslation.verifyModelCodersRegistered();
+
+      SdkHarnessOptions sdkHarnessOptions = options.as(SdkHarnessOptions.class);
+      Map<String, String> openTelemetryProperties = sdkHarnessOptions.getOpenTelemetryProperties();
+      if (openTelemetryProperties != null) {
+        openTelemetryProperties.forEach(System::setProperty);
+        LOG.info(
+            "enabled open telemetry {}",
+            ConfigUtil.getString("otel.java.global-autoconfigure.enabled", ""));
+      } else {
+        LOG.info("Disabled open telemetry");
+      }
+
       EnumMap<
               BeamFnApi.InstructionRequest.RequestCase,
               ThrowingFunction<InstructionRequest, BeamFnApi.InstructionResponse.Builder>>
