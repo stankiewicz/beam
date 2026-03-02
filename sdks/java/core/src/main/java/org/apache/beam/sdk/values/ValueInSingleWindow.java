@@ -156,7 +156,7 @@ public abstract class ValueInSingleWindow<T> {
       Instant timestamp = InstantCoder.of().decode(inStream);
       BoundedWindow window = windowCoder.decode(inStream);
       PaneInfo paneInfo = PaneInfo.PaneInfoCoder.INSTANCE.decode(inStream);
-      io.opentelemetry.context.Context openTelemetryContext = null;
+      io.opentelemetry.context. @Nullable Context openTelemetryContext = null;
       if (WindowedValues.WindowedValueCoder.isMetadataSupported() && paneInfo.isElementMetadata()) {
         BeamFnApi.Elements.ElementMetadata elementMetadata =
             BeamFnApi.Elements.ElementMetadata.parseFrom(ByteArrayCoder.of().decode(inStream));
