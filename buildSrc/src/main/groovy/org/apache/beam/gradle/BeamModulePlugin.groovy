@@ -1562,7 +1562,6 @@ class BeamModulePlugin implements Plugin<Project> {
             "MutablePublicArray",
             "NonCanonicalType",
             "ProtectedMembersInFinalClass",
-            "Slf4jFormatShouldBeConst",
             "Slf4jSignOnlyFormat",
             "StaticAssignmentInConstructor",
             "ThreadPriorityCheck",
