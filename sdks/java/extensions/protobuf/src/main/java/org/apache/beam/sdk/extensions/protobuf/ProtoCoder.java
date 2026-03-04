@@ -213,7 +213,7 @@ public class ProtoCoder<T extends Message> extends CustomCoder<T> {
     if (this == other) {
       return true;
     }
-    if (other == null || getClass() != other.getClass()) {
+    if (!(other instanceof ProtoCoder)) {
       return false;
     }
     ProtoCoder<?> otherCoder = (ProtoCoder<?>) other;

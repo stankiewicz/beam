@@ -108,7 +108,7 @@ public class DynamicProtoCoder extends ProtoCoder<DynamicMessage> {
     if (this == other) {
       return true;
     }
-    if (other == null || getClass() != other.getClass()) {
+    if (!(other instanceof DynamicProtoCoder)) {
       return false;
     }
     DynamicProtoCoder otherCoder = (DynamicProtoCoder) other;

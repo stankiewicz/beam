@@ -764,7 +764,7 @@ public class AvroUtils {
       if (this == other) {
         return true;
       }
-      if (other == null || getClass() != other.getClass()) {
+      if (!(other instanceof GenericRecordToRowFn)) {
         return false;
       }
       GenericRecordToRowFn that = (GenericRecordToRowFn) other;
@@ -803,7 +803,7 @@ public class AvroUtils {
       if (this == other) {
         return true;
       }
-      if (other == null || getClass() != other.getClass()) {
+      if (!(other instanceof RowToGenericRecordFn)) {
         return false;
       }
       RowToGenericRecordFn that = (RowToGenericRecordFn) other;
