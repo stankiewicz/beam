@@ -1587,7 +1587,6 @@ class BeamModulePlugin implements Plugin<Project> {
             "StringCharset",
             "SuperCallToObjectMethod",
             "UnnecessaryLongToIntConversion",
-            "UnusedVariable",
             // intended suppressions emerged in newer protobuf versions
             "AutoValueBoxedValues",
             // For backward compatibility. Public method checked in before this check impl

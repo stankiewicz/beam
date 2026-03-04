@@ -496,7 +496,10 @@ public class UnboundedReadEvaluatorFactoryTest {
 
     static int readerCreatedCount;
     static int readerClosedCount;
+
+    @SuppressWarnings("unused")
     static int readerAdvancedCount;
+
     private final Coder<T> coder;
     private final List<T> elems;
     private boolean dedupes = false;
