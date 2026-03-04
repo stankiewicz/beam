@@ -97,7 +97,7 @@ public class JavaBeanSchema extends GetterBasedSchemaProviderV2 {
 
     @Override
     public boolean equals(@Nullable Object obj) {
-      return obj != null && this.getClass() == obj.getClass();
+      return obj instanceof GetterTypeSupplier;
     }
   }
 
@@ -150,7 +150,7 @@ public class JavaBeanSchema extends GetterBasedSchemaProviderV2 {
 
     @Override
     public boolean equals(@Nullable Object obj) {
-      return obj != null && this.getClass() == obj.getClass();
+      return obj instanceof SetterTypeSupplier;
     }
   }
 
@@ -238,6 +238,6 @@ public class JavaBeanSchema extends GetterBasedSchemaProviderV2 {
 
   @Override
   public boolean equals(@Nullable Object obj) {
-    return obj != null && this.getClass() == obj.getClass();
+    return obj instanceof JavaBeanSchema;
   }
 }
