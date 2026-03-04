@@ -1551,7 +1551,6 @@ class BeamModulePlugin implements Plugin<Project> {
             "InvalidInlineTag",
             "InvalidLink",
             "InvalidParam",
-            "InvalidThrows",
             "JavaTimeDefaultTimeZone",
             "JavaUtilDate",
             "JodaConstructors",
