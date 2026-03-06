@@ -1606,7 +1606,6 @@ class BeamModulePlugin implements Plugin<Project> {
           disabledChecks.each {
             options.errorprone.errorproneArgs.add("-Xep:${it}:OFF")
           }
-          options.errorprone.errorproneArgs.add("-Xep:AutoValueBoxedValues:WARN")
         }
       }
 
