@@ -1582,7 +1582,6 @@ class BeamModulePlugin implements Plugin<Project> {
             "UnnecessaryLongToIntConversion",
             "UnusedVariable",
             // intended suppressions emerged in newer protobuf versions
-            "AutoValueBoxedValues",
             // For backward compatibility. Public method checked in before this check impl
             // Possible use in interface subclasses
             "ClassInitializationDeadlock",
@@ -1607,6 +1606,7 @@ class BeamModulePlugin implements Plugin<Project> {
           disabledChecks.each {
             options.errorprone.errorproneArgs.add("-Xep:${it}:OFF")
           }
+          options.errorprone.errorproneArgs.add("-Xep:AutoValueBoxedValues:WARN")
         }
       }
 
