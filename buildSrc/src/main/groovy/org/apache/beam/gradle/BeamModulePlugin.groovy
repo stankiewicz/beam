@@ -1565,7 +1565,6 @@ class BeamModulePlugin implements Plugin<Project> {
             "UndefinedEquals",
             "UnescapedEntity",
             "UnnecessaryLambda",
-            "UnnecessaryMethodReference",
             "UnnecessaryParentheses",
             "UnrecognisedJavadocTag",
             "UnsafeReflectiveConstructionCast",

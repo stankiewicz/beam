@@ -328,12 +328,11 @@ public class TextIOWriteTest {
             StreamSupport.stream(
                     elements.stream()
                         .filter(
-                            Predicates.compose(new StartsWith("a"), new ExtractWriteDestination())
-                                ::apply)
+                            Predicates.compose(new StartsWith("a"), new ExtractWriteDestination()))
                         .collect(Collectors.toList())
                         .spliterator(),
                     false)
-                .map(Functions.toStringFunction()::apply)
+                .map(Functions.toStringFunction())
                 .collect(Collectors.toList()),
             String.class);
     String[] bElements =
@@ -341,12 +340,11 @@ public class TextIOWriteTest {
             StreamSupport.stream(
                     elements.stream()
                         .filter(
-                            Predicates.compose(new StartsWith("b"), new ExtractWriteDestination())
-                                ::apply)
+                            Predicates.compose(new StartsWith("b"), new ExtractWriteDestination()))
                         .collect(Collectors.toList())
                         .spliterator(),
                     false)
-                .map(Functions.toStringFunction()::apply)
+                .map(Functions.toStringFunction())
                 .collect(Collectors.toList()),
             String.class);
     String[] cElements =
@@ -354,12 +352,11 @@ public class TextIOWriteTest {
             StreamSupport.stream(
                     elements.stream()
                         .filter(
-                            Predicates.compose(new StartsWith("c"), new ExtractWriteDestination())
-                                ::apply)
+                            Predicates.compose(new StartsWith("c"), new ExtractWriteDestination()))
                         .collect(Collectors.toList())
                         .spliterator(),
                     false)
-                .map(Functions.toStringFunction()::apply)
+                .map(Functions.toStringFunction())
                 .collect(Collectors.toList()),
             String.class);
     assertOutputFiles(
