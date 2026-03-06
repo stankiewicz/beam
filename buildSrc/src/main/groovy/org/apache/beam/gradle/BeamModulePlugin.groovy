@@ -1560,7 +1560,6 @@ class BeamModulePlugin implements Plugin<Project> {
             "Slf4jFormatShouldBeConst",
             "Slf4jSignOnlyFormat",
             "StaticAssignmentInConstructor",
-            "ThreadPriorityCheck",
             "TimeUnitConversionChecker",
             "UndefinedEquals",
             "UnescapedEntity",
@@ -1571,21 +1570,16 @@ class BeamModulePlugin implements Plugin<Project> {
             "UnsafeReflectiveConstructionCast",
             // errorprone 3.2.0+ checks
             "DirectInvocationOnMock",
-            "Finalize",
             "JUnitIncompatibleType",
             "LongDoubleConversion",
             "MockNotUsedInProduction",
             "NarrowCalculation",
-            "NullableTypeParameter",
             "NullableWildcard",
             "SuperCallToObjectMethod",
             "UnnecessaryLongToIntConversion",
             "UnusedVariable",
             // intended suppressions emerged in newer protobuf versions
             "AutoValueBoxedValues",
-            // For backward compatibility. Public method checked in before this check impl
-            // Possible use in interface subclasses
-            "ClassInitializationDeadlock",
             // for encoding efficiency and backward compatibility
             "EnumOrdinal",
             // widely used in non-public methods

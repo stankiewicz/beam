@@ -3842,6 +3842,7 @@ public class KafkaIO {
     }
   }
 
+  @SuppressWarnings("NullableTypeParameter")
   private static class NullOnlyCoder<@Nullable T> extends AtomicCoder<T> {
     @Override
     public void encode(T value, OutputStream outStream) {

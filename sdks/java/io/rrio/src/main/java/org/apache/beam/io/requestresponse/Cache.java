@@ -40,6 +40,7 @@ import org.joda.time.Duration;
 
 /** Transforms for reading and writing request/response associations to a cache. */
 // TODO(damondouglas): Add metrics per https://github.com/apache/beam/issues/29888.
+@SuppressWarnings("NullableTypeParameter")
 public final class Cache {
 
   /**

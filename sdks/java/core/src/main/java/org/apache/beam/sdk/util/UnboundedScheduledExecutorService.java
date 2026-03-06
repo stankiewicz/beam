@@ -64,6 +64,7 @@ import org.checkerframework.checker.nullness.qual.Nullable;
  *   <li>An unbounded number of threads can be started.
  * </ul>
  */
+@SuppressWarnings("NullableTypeParameter")
 public final class UnboundedScheduledExecutorService implements ScheduledExecutorService {
   /**
    * A {@link FutureTask} that handles periodically rescheduling tasks.
