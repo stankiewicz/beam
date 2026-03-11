@@ -446,7 +446,8 @@ public class OutputAndTimeBoundedSplittableProcessElementInvoker<
               element.getPaneInfo(),
               element.getRecordId(),
               element.getRecordOffset(),
-              element.causedByDrain()));
+              element.causedByDrain(),
+              element.getOpenTelemetryContext()));
     }
 
     @Override
@@ -469,7 +470,8 @@ public class OutputAndTimeBoundedSplittableProcessElementInvoker<
               paneInfo,
               element.getRecordId(),
               element.getRecordOffset(),
-              element.causedByDrain()));
+              element.causedByDrain(),
+              element.getOpenTelemetryContext()));
     }
 
     private void noteOutput() {

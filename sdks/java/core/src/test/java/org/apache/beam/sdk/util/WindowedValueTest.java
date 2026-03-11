@@ -109,7 +109,8 @@ public class WindowedValueTest {
             PaneInfo.NO_FIRING,
             null,
             null,
-            CausedByDrain.CAUSED_BY_DRAIN, context); // drain is persisted as part of metadata
+            CausedByDrain.CAUSED_BY_DRAIN,
+            context); // drain is persisted as part of metadata
 
     Coder<WindowedValue<String>> windowedValueCoder =
         WindowedValues.getFullCoder(StringUtf8Coder.of(), IntervalWindow.getCoder());

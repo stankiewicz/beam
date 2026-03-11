@@ -497,7 +497,8 @@ public class DoFnTester<InputT, OutputT> implements AutoCloseable {
                       PaneInfo.NO_FIRING,
                       null,
                       null,
-                      CausedByDrain.NORMAL, null));
+                      CausedByDrain.NORMAL,
+                      null));
         }
       };
     }
@@ -641,7 +642,8 @@ public class DoFnTester<InputT, OutputT> implements AutoCloseable {
                   element.getPaneInfo(),
                   null,
                   null,
-                  CausedByDrain.NORMAL, null));
+                  CausedByDrain.NORMAL,
+                  null));
     }
 
     @Override

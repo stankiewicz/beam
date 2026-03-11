@@ -339,7 +339,7 @@ public class WindowedValues {
       T value, Instant timestamp, BoundedWindow window, PaneInfo paneInfo) {
     checkArgument(paneInfo != null, "WindowedValue requires PaneInfo, but it was null");
 
-    return of(value, timestamp, window, paneInfo, CausedByDrain.NORMAL, null);
+    return of(value, timestamp, window, paneInfo, null, null, CausedByDrain.NORMAL, null);
   }
 
   /** Returns a {@code WindowedValue} with the given value, timestamp, and window. */
@@ -384,7 +384,8 @@ public class WindowedValues {
    * default timestamp and pane.
    */
   public static <T> WindowedValue<T> valueInGlobalWindow(T value) {
-    return new ValueInGlobalWindow<>(value, PaneInfo.NO_FIRING, null, null, CausedByDrain.NORMAL, null);
+    return new ValueInGlobalWindow<>(
+        value, PaneInfo.NO_FIRING, null, null, CausedByDrain.NORMAL, null);
   }
 
   /**

@@ -82,7 +82,14 @@ public abstract class ValueInSingleWindow<T> {
       CausedByDrain causedByDrain,
       @Nullable Context openTelemetryContext) {
     return new AutoValue_ValueInSingleWindow<>(
-        value, timestamp, window, paneInfo, currentRecordId, currentRecordOffset, causedByDrain, openTelemetryContext);
+        value,
+        timestamp,
+        window,
+        paneInfo,
+        currentRecordId,
+        currentRecordOffset,
+        causedByDrain,
+        openTelemetryContext);
   }
 
   public static <T> ValueInSingleWindow<T> of(
@@ -116,7 +123,8 @@ public abstract class ValueInSingleWindow<T> {
     }
 
     @Override
-    public void encode(ValueInSingleWindow<T> windowedElem, OutputStream outStream, Coder.Context context)
+    public void encode(
+        ValueInSingleWindow<T> windowedElem, OutputStream outStream, Coder.Context context)
         throws IOException {
       InstantCoder.of().encode(windowedElem.getTimestamp(), outStream);
       windowCoder.encode(windowedElem.getWindow(), outStream);
@@ -153,7 +161,7 @@ public abstract class ValueInSingleWindow<T> {
       BoundedWindow window = windowCoder.decode(inStream);
       PaneInfo paneInfo = PaneInfo.PaneInfoCoder.INSTANCE.decode(inStream);
       CausedByDrain causedByDrain = CausedByDrain.NORMAL;
-      io.opentelemetry.context. @Nullable Context openTelemetryContext = null;
+      io.opentelemetry.context.@Nullable Context openTelemetryContext = null;
       if (WindowedValues.WindowedValueCoder.isMetadataSupported() && paneInfo.isElementMetadata()) {
         BeamFnApi.Elements.ElementMetadata elementMetadata =
             BeamFnApi.Elements.ElementMetadata.parseFrom(ByteArrayCoder.of().decode(inStream));
@@ -166,7 +174,8 @@ public abstract class ValueInSingleWindow<T> {
 
       T value = valueCoder.decode(inStream, context);
       // todo #33176 specify additional metadata in the future
-      return new AutoValue_ValueInSingleWindow<>(value, timestamp, window, paneInfo, null, causedByDrain, openTelemetryContext);
+      return new AutoValue_ValueInSingleWindow<>(
+          value, timestamp, window, paneInfo, null, null, causedByDrain, openTelemetryContext);
     }
 
     @Override
