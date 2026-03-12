@@ -1018,7 +1018,8 @@ public class WindowedValues {
       if (metadataSupported) {
         BeamFnApi.Elements.ElementMetadata.Builder builder =
             BeamFnApi.Elements.ElementMetadata.newBuilder();
-        io.opentelemetry.context.Context openTelemetryContext = windowedElem.getOpenTelemetryContext();
+        io.opentelemetry.context.Context openTelemetryContext =
+            windowedElem.getOpenTelemetryContext();
         if (openTelemetryContext != null) {
           OpenTelemetryContextPropagator.write(openTelemetryContext, builder);
         }
