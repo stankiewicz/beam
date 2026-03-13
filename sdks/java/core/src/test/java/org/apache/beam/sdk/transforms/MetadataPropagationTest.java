@@ -39,7 +39,7 @@ public class MetadataPropagationTest {
   @RunWith(JUnit4.class)
   public static class MiscTest {
 
-    /** Further tests for Sample transform. */
+    /** Tests for metadata propagation. */
     @Rule public final transient TestPipeline pipeline = TestPipeline.create();
 
     static class CausedByDrainSettingDoFn extends DoFn<Integer, String> {
