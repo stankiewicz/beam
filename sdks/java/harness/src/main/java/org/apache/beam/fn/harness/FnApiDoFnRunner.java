@@ -1954,11 +1954,13 @@ public class FnApiDoFnRunner<InputT, RestrictionT, PositionT, WatermarkEstimator
 
     @Override
     public void outputWindowedValue(WindowedValue<OutputT> windowedValue) {
+      checkTimestamp(windowedValue.getTimestamp());
       outputTo(mainOutputConsumer, windowedValue);
     }
 
     @Override
     public <T> void outputWindowedValue(TupleTag<T> tag, WindowedValue<T> windowedValue) {
+      checkTimestamp(windowedValue.getTimestamp());
       outputTo((FnDataReceiver) localNameToConsumer.get(tag.getId()), windowedValue);
     }
 

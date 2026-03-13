@@ -472,23 +472,22 @@ public class OutputAndTimeBoundedSplittableProcessElementInvoker<
               element.causedByDrain()));
     }
 
-    @Override
-    public void outputWindowedValue(WindowedValue<OutputT> windowedValue) {
+    private void noteOutputAndObserveTimestamp(Instant timestamp) {
       noteOutput();
       if (watermarkEstimator instanceof TimestampObservingWatermarkEstimator) {
-        ((TimestampObservingWatermarkEstimator) watermarkEstimator)
-            .observeTimestamp(windowedValue.getTimestamp());
+        ((TimestampObservingWatermarkEstimator) watermarkEstimator).observeTimestamp(timestamp);
       }
+    }
+
+    @Override
+    public void outputWindowedValue(WindowedValue<OutputT> windowedValue) {
+      noteOutputAndObserveTimestamp(windowedValue.getTimestamp());
       outputReceiver.output(mainOutputTag, windowedValue);
     }
 
     @Override
     public <T> void outputWindowedValue(TupleTag<T> tag, WindowedValue<T> windowedValue) {
-      noteOutput();
-      if (watermarkEstimator instanceof TimestampObservingWatermarkEstimator) {
-        ((TimestampObservingWatermarkEstimator) watermarkEstimator)
-            .observeTimestamp(windowedValue.getTimestamp());
-      }
+      noteOutputAndObserveTimestamp(windowedValue.getTimestamp());
       outputReceiver.output(tag, windowedValue);
     }
 

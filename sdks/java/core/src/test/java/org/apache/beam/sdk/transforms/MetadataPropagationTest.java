@@ -23,6 +23,8 @@ import org.apache.beam.sdk.testing.TestPipeline;
 import org.apache.beam.sdk.values.CausedByDrain;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.WindowedValues;
+import org.junit.After;
+import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -66,6 +68,27 @@ public class MetadataPropagationTest {
               .apply(ParDo.of(new CausedByDrainExtractingDoFn()));
 
       PAssert.that(results).containsInAnyOrder("CAUSED_BY_DRAIN");
+
+      pipeline.run();
+    }
+
+    @After
+    public void turnOffMetadata() {
+      WindowedValues.WindowedValueCoder.setMetadataNotSupported();
+    }
+
+    @Test
+    @Category(NeedsRunner.class)
+    public void testDefaultMetadataPropagationAcrossShuffleParameter() {
+      Assert.assertFalse(WindowedValues.WindowedValueCoder.isMetadataSupported());
+      PCollection<String> results =
+          pipeline
+              .apply(Create.of(1))
+              .apply(ParDo.of(new CausedByDrainSettingDoFn()))
+              .apply(Redistribute.arbitrarily())
+              .apply(ParDo.of(new CausedByDrainExtractingDoFn()));
+
+      PAssert.that(results).containsInAnyOrder("NORMAL");
 
       pipeline.run();
     }
