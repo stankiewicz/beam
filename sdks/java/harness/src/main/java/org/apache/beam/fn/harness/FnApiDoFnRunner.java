@@ -1788,6 +1788,16 @@ public class FnApiDoFnRunner<InputT, RestrictionT, PositionT, WatermarkEstimator
     }
 
     @Override
+    public void outputWindowedValue(WindowedValue<OutputT> windowedValue) {
+      outputTo(mainOutputConsumer, windowedValue);
+    }
+
+    @Override
+    public <T> void outputWindowedValue(TupleTag<T> tag, WindowedValue<T> windowedValue) {
+      outputTo((FnDataReceiver) localNameToConsumer.get(tag.getId()), windowedValue);
+    }
+
+    @Override
     public <T> void outputWindowedValue(
         TupleTag<T> tag,
         T output,
@@ -1859,11 +1869,6 @@ public class FnApiDoFnRunner<InputT, RestrictionT, PositionT, WatermarkEstimator
           currentElement.getTimestamp(),
           currentElement.getTimestamp(),
           currentElement.getPaneInfo());
-    }
-
-    @Override
-    public CausedByDrain causedByDrain() {
-      return currentElement.causedByDrain();
     }
   }
 
@@ -1945,6 +1950,16 @@ public class FnApiDoFnRunner<InputT, RestrictionT, PositionT, WatermarkEstimator
         throw new IllegalArgumentException(String.format("Unknown output tag %s", tag));
       }
       outputTo(consumer, WindowedValues.of(output, timestamp, windows, paneInfo));
+    }
+
+    @Override
+    public void outputWindowedValue(WindowedValue<OutputT> windowedValue) {
+      outputTo(mainOutputConsumer, windowedValue);
+    }
+
+    @Override
+    public <T> void outputWindowedValue(TupleTag<T> tag, WindowedValue<T> windowedValue) {
+      outputTo((FnDataReceiver) localNameToConsumer.get(tag.getId()), windowedValue);
     }
 
     @Override
@@ -2254,6 +2269,16 @@ public class FnApiDoFnRunner<InputT, RestrictionT, PositionT, WatermarkEstimator
     public WatermarkEstimator<?> watermarkEstimator() {
       return currentWatermarkEstimator;
     }
+
+    @Override
+    public CausedByDrain causedByDrain() {
+      return currentElement.causedByDrain();
+    }
+
+    @Override
+    public CausedByDrain causedByDrain(DoFn<InputT, OutputT> doFn) {
+      return currentElement.causedByDrain();
+    }
   }
 
   /**
@@ -2352,6 +2377,16 @@ public class FnApiDoFnRunner<InputT, RestrictionT, PositionT, WatermarkEstimator
         FnDataReceiver<WindowedValue<T>> consumer =
             (FnDataReceiver) localNameToConsumer.get(tag.getId());
         outputTo(consumer, WindowedValues.of(output, timestamp, windows, paneInfo));
+      }
+
+      @Override
+      public void outputWindowedValue(WindowedValue<OutputT> windowedValue) {
+        outputTo(mainOutputConsumer, windowedValue);
+      }
+
+      @Override
+      public <T> void outputWindowedValue(TupleTag<T> tag, WindowedValue<T> windowedValue) {
+        outputTo((FnDataReceiver) localNameToConsumer.get(tag.getId()), windowedValue);
       }
 
       @SuppressWarnings(
@@ -2642,6 +2677,16 @@ public class FnApiDoFnRunner<InputT, RestrictionT, PositionT, WatermarkEstimator
         outputTo(
             consumer,
             WindowedValues.of(output, timestamp, currentWindow, currentTimer.getPaneInfo()));
+      }
+
+      @Override
+      public void outputWindowedValue(WindowedValue<OutputT> windowedValue) {
+        outputTo(mainOutputConsumer, windowedValue);
+      }
+
+      @Override
+      public <T> void outputWindowedValue(TupleTag<T> tag, WindowedValue<T> windowedValue) {
+        outputTo((FnDataReceiver) localNameToConsumer.get(tag.getId()), windowedValue);
       }
 
       @Override

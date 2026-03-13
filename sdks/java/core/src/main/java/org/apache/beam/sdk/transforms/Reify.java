@@ -141,6 +141,7 @@ public class Reify {
                   new DoFn<KV<K, V>, KV<K, ValueInSingleWindow<V>>>() {
                     @ProcessElement
                     public void processElement(
+                        ProcessContext pc,
                         @Element KV<K, V> element,
                         @DoFn.Timestamp Instant timestamp,
                         BoundedWindow window,
@@ -150,7 +151,13 @@ public class Reify {
                           KV.of(
                               element.getKey(),
                               ValueInSingleWindow.of(
-                                  element.getValue(), timestamp, window, paneInfo)));
+                                  element.getValue(),
+                                  timestamp,
+                                  window,
+                                  paneInfo,
+                                  pc.currentRecordId(),
+                                  pc.currentRecordOffset(),
+                                  pc.causedByDrain())));
                     }
                   }))
           .setCoder(
