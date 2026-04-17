@@ -682,7 +682,13 @@ public class SimpleDoFnRunner<InputT, OutputT> implements DoFnRunner<InputT, Out
                     timerDeclaration.field(),
                     timerId);
         return new TimerInternalsTimer(
-            window(), getNamespace(), timerId, spec, timestamp(), stepContext.timerInternals());
+            window(),
+            getNamespace(),
+            timerId,
+            spec,
+            timestamp(),
+            stepContext.timerInternals(),
+            elem.causedByDrain());
       } catch (IllegalAccessException e) {
         throw new RuntimeException(e);
       }
@@ -710,7 +716,8 @@ public class SimpleDoFnRunner<InputT, OutputT> implements DoFnRunner<InputT, Out
             getNamespace(),
             spec,
             timestamp(),
-            stepContext.timerInternals());
+            stepContext.timerInternals(),
+            elem.causedByDrain());
       } catch (IllegalAccessException e) {
         throw new RuntimeException(e);
       }
@@ -959,7 +966,13 @@ public class SimpleDoFnRunner<InputT, OutputT> implements DoFnRunner<InputT, Out
                     timerDeclaration.field(),
                     timerId);
         return new TimerInternalsTimer(
-            window, getNamespace(), timerId, spec, timestamp(), stepContext.timerInternals());
+            window,
+            getNamespace(),
+            timerId,
+            spec,
+            timestamp(),
+            stepContext.timerInternals(),
+            causedByDrain);
       } catch (IllegalAccessException e) {
         throw new RuntimeException(e);
       }
@@ -986,7 +999,8 @@ public class SimpleDoFnRunner<InputT, OutputT> implements DoFnRunner<InputT, Out
             getNamespace(),
             spec,
             timestamp(),
-            stepContext.timerInternals());
+            stepContext.timerInternals(),
+            causedByDrain);
       } catch (IllegalAccessException e) {
         throw new RuntimeException(e);
       }
@@ -1350,7 +1364,9 @@ public class SimpleDoFnRunner<InputT, OutputT> implements DoFnRunner<InputT, Out
     private @MonotonicNonNull Instant target;
     private @Nullable Instant outputTimestamp;
     private boolean noOutputTimestamp;
+    private boolean explicitOutputTimestampSet;
     private final Instant elementInputTimestamp;
+    private final CausedByDrain causedByDrain;
     private Duration period = Duration.ZERO;
     private Duration offset = Duration.ZERO;
 
@@ -1360,7 +1376,8 @@ public class SimpleDoFnRunner<InputT, OutputT> implements DoFnRunner<InputT, Out
         String timerId,
         TimerSpec spec,
         Instant elementInputTimestamp,
-        TimerInternals timerInternals) {
+        TimerInternals timerInternals,
+        CausedByDrain causedByDrain) {
       this.window = window;
       this.namespace = namespace;
       this.timerId = timerId;
@@ -1369,6 +1386,7 @@ public class SimpleDoFnRunner<InputT, OutputT> implements DoFnRunner<InputT, Out
       this.noOutputTimestamp = false;
       this.elementInputTimestamp = elementInputTimestamp;
       this.timerInternals = timerInternals;
+      this.causedByDrain = causedByDrain;
     }
 
     public TimerInternalsTimer(
@@ -1378,7 +1396,8 @@ public class SimpleDoFnRunner<InputT, OutputT> implements DoFnRunner<InputT, Out
         String timerFamilyId,
         TimerSpec spec,
         Instant elementInputTimestamp,
-        TimerInternals timerInternals) {
+        TimerInternals timerInternals,
+        CausedByDrain causedByDrain) {
       this.window = window;
       this.namespace = namespace;
       this.timerId = timerId;
@@ -1386,6 +1405,7 @@ public class SimpleDoFnRunner<InputT, OutputT> implements DoFnRunner<InputT, Out
       this.spec = spec;
       this.elementInputTimestamp = elementInputTimestamp;
       this.timerInternals = timerInternals;
+      this.causedByDrain = causedByDrain;
     }
 
     @Override
@@ -1446,6 +1466,7 @@ public class SimpleDoFnRunner<InputT, OutputT> implements DoFnRunner<InputT, Out
     public Timer withOutputTimestamp(Instant outputTimestamp) {
       this.outputTimestamp = outputTimestamp;
       this.noOutputTimestamp = false;
+      this.explicitOutputTimestampSet = true;
       return this;
     }
 
@@ -1544,8 +1565,25 @@ public class SimpleDoFnRunner<InputT, OutputT> implements DoFnRunner<InputT, Out
       checkStateNotNull(
           target,
           "internal error: attempt to set internal timer when target timestamp not yet set");
+      if (causedByDrain == CausedByDrain.CAUSED_BY_DRAIN
+          && spec.getTimeDomain() != TimeDomain.EVENT_TIME
+          && explicitOutputTimestampSet
+          && timerInternals
+              .currentInputWatermarkTime()
+              .isAfter(LateDataUtils.garbageCollectionTime(window, allowedLateness))) {
+        // Do not set the timer
+        return;
+      }
+      Instant nonNullOutputTimestamp = outputTimestamp;
+      if (nonNullOutputTimestamp == null) {
+        if (TimeDomain.EVENT_TIME.equals(spec.getTimeDomain())) {
+          nonNullOutputTimestamp = target;
+        } else {
+          nonNullOutputTimestamp = elementInputTimestamp;
+        }
+      }
       timerInternals.setTimer(
-          namespace, timerId, timerFamilyId, target, outputTimestamp, spec.getTimeDomain());
+          namespace, timerId, timerFamilyId, target, nonNullOutputTimestamp, spec.getTimeDomain());
     }
 
     @Override
@@ -1579,6 +1617,7 @@ public class SimpleDoFnRunner<InputT, OutputT> implements DoFnRunner<InputT, Out
     private final TimerSpec spec;
     private final Instant elementInputTimestamp;
     private final String timerFamilyId;
+    private final CausedByDrain causedByDrain;
 
     public TimerInternalsTimerMap(
         String timerFamilyId,
@@ -1586,13 +1625,15 @@ public class SimpleDoFnRunner<InputT, OutputT> implements DoFnRunner<InputT, Out
         StateNamespace namespace,
         TimerSpec spec,
         Instant elementInputTimestamp,
-        TimerInternals timerInternals) {
+        TimerInternals timerInternals,
+        CausedByDrain causedByDrain) {
       this.window = window;
       this.namespace = namespace;
       this.spec = spec;
       this.elementInputTimestamp = elementInputTimestamp;
       this.timerInternals = timerInternals;
       this.timerFamilyId = timerFamilyId;
+      this.causedByDrain = causedByDrain;
     }
 
     @Override
@@ -1605,7 +1646,8 @@ public class SimpleDoFnRunner<InputT, OutputT> implements DoFnRunner<InputT, Out
               timerFamilyId,
               spec,
               elementInputTimestamp,
-              timerInternals);
+              timerInternals,
+              causedByDrain);
       timer.set(absoluteTime);
       timers.put(timerId, timer);
     }
@@ -1622,7 +1664,8 @@ public class SimpleDoFnRunner<InputT, OutputT> implements DoFnRunner<InputT, Out
                   timerFamilyId,
                   spec,
                   elementInputTimestamp,
-                  timerInternals));
+                  timerInternals,
+                  causedByDrain));
     }
   }
 }

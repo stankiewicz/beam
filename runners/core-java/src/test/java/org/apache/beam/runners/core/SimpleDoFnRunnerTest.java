@@ -43,6 +43,7 @@ import org.apache.beam.sdk.transforms.reflect.DoFnSignature.TimerDeclaration;
 import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
 import org.apache.beam.sdk.transforms.windowing.GlobalWindow;
 import org.apache.beam.sdk.transforms.windowing.GlobalWindows;
+import org.apache.beam.sdk.transforms.windowing.PaneInfo;
 import org.apache.beam.sdk.transforms.windowing.WindowFn;
 import org.apache.beam.sdk.util.UserCodeException;
 import org.apache.beam.sdk.util.WindowedValueMultiReceiver;
@@ -183,6 +184,54 @@ public class SimpleDoFnRunnerTest {
             currentTime.plus(DoFnWithTimers.TIMER_OFFSET),
             currentTime.plus(DoFnWithTimers.TIMER_OFFSET),
             TimeDomain.EVENT_TIME);
+  }
+
+  @Test
+  public void testTimerProcessingTimeNotSetDuringDrainIfExpired() {
+    TimerSkewDoFn fn = new TimerSkewDoFn(Duration.ZERO);
+    DoFnRunner<KV<String, Duration>, Duration> runner =
+        new SimpleDoFnRunner<>(
+            null,
+            fn,
+            NullSideInputReader.empty(),
+            new ListOutputManager(),
+            new TupleTag<>(),
+            Collections.emptyList(),
+            mockStepContext,
+            null,
+            Collections.emptyMap(),
+            WindowingStrategy.of(new GlobalWindows()),
+            DoFnSchemaInformation.create(),
+            Collections.emptyMap());
+
+    // Set current watermark after GC time of GlobalWindow (MAX_TIMESTAMP)
+    Instant currentTime = BoundedWindow.TIMESTAMP_MAX_VALUE.plus(Duration.millis(1));
+    when(mockTimerInternals.currentInputWatermarkTime()).thenReturn(currentTime);
+
+    // Process element with drain metadata
+    BoundedWindow window = GlobalWindow.INSTANCE;
+    PaneInfo pane = PaneInfo.NO_FIRING;
+    WindowedValue<KV<String, Duration>> value =
+        WindowedValues.of(
+            KV.of("key", Duration.ZERO),
+            new Instant(0),
+            window,
+            pane,
+            null,
+            null,
+            CausedByDrain.CAUSED_BY_DRAIN);
+
+    runner.processElement(value);
+
+    // Verify that setTimer was NEVER called
+    org.mockito.Mockito.verify(mockTimerInternals, org.mockito.Mockito.never())
+        .setTimer(
+            org.mockito.Mockito.any(),
+            org.mockito.Mockito.anyString(),
+            org.mockito.Mockito.anyString(),
+            org.mockito.Mockito.any(),
+            org.mockito.Mockito.any(),
+            org.mockito.Mockito.any());
   }
 
   @Test
