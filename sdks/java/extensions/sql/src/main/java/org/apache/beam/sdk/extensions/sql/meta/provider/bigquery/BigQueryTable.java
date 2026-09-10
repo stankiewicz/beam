@@ -20,7 +20,9 @@ package org.apache.beam.sdk.extensions.sql.meta.provider.bigquery;
 import java.io.IOException;
 import java.io.Serializable;
 import java.math.BigInteger;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.function.IntFunction;
 import java.util.stream.Collectors;
@@ -36,15 +38,25 @@ import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.TypedRead;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.TypedRead.Method;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.Write.WriteDisposition;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryOptions;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServices;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryUtils;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryUtils.ConversionOptions;
+import org.apache.beam.sdk.io.gcp.bigquery.providers.BigQueryStorageWriteApiSchemaTransformProvider;
+import org.apache.beam.sdk.io.gcp.bigquery.providers.BigQueryStorageWriteApiSchemaTransformProvider.BigQueryWriteConfiguration;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.schemas.FieldAccessDescriptor;
+import org.apache.beam.sdk.schemas.NoSuchSchemaException;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.schemas.SchemaCoder;
+import org.apache.beam.sdk.schemas.SchemaRegistry;
 import org.apache.beam.sdk.schemas.utils.SelectHelpers;
+import org.apache.beam.sdk.transforms.DoFn;
+import org.apache.beam.sdk.transforms.ParDo;
+import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
+import org.apache.beam.sdk.transforms.windowing.PaneInfo;
 import org.apache.beam.sdk.values.PBegin;
 import org.apache.beam.sdk.values.PCollection;
+import org.apache.beam.sdk.values.PCollectionRowTuple;
 import org.apache.beam.sdk.values.POutput;
 import org.apache.beam.sdk.values.Row;
 import org.apache.beam.vendor.calcite.v1_40_0.org.apache.calcite.rel.rel2sql.SqlImplementor;
@@ -54,7 +66,9 @@ import org.apache.beam.vendor.calcite.v1_40_0.org.apache.calcite.sql.SqlNode;
 import org.apache.beam.vendor.calcite.v1_40_0.org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.apache.beam.vendor.calcite.v1_40_0.org.apache.calcite.sql.parser.SqlParserPos;
 import org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.annotations.VisibleForTesting;
+import org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.base.Splitter;
 import org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.collect.ImmutableList;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -66,7 +80,7 @@ import org.slf4j.LoggerFactory;
   "rawtypes", // TODO(https://github.com/apache/beam/issues/20447)
   "nullness" // TODO(https://github.com/apache/beam/issues/20497)
 })
-class BigQueryTable extends SchemaBaseBeamTable implements Serializable {
+public class BigQueryTable extends SchemaBaseBeamTable implements Serializable {
   @VisibleForTesting static final String METHOD_PROPERTY = "method";
   @VisibleForTesting static final String WRITE_DISPOSITION_PROPERTY = "writeDisposition";
   @VisibleForTesting final String bqLocation;
@@ -76,10 +90,48 @@ class BigQueryTable extends SchemaBaseBeamTable implements Serializable {
   @VisibleForTesting final Method method;
   @VisibleForTesting final WriteDisposition writeDisposition;
 
+  @VisibleForTesting public final boolean cdcEnabled;
+  @VisibleForTesting public final List<String> primaryKeys;
+  @VisibleForTesting public final long runEpoch;
+  private @Nullable BigQueryServices testBigQueryServices = null;
+
+  @VisibleForTesting
+  public void setTestBigQueryServices(BigQueryServices testBigQueryServices) {
+    this.testBigQueryServices = testBigQueryServices;
+  }
+
   BigQueryTable(Table table, BigQueryUtils.ConversionOptions options) {
     super(table.getSchema());
     this.conversionOptions = options;
     this.bqLocation = table.getLocation();
+
+    com.fasterxml.jackson.databind.node.ObjectNode props = table.getProperties();
+    this.cdcEnabled =
+        props.has("cdc") && props.get("cdc").asBoolean(false)
+            || props.has("primary_keys")
+            || props.has("run_epoch");
+
+    if (props.has("primary_keys")) {
+      com.fasterxml.jackson.databind.JsonNode pkNode = props.get("primary_keys");
+      if (pkNode.isArray()) {
+        List<String> pks = new ArrayList<>();
+        for (com.fasterxml.jackson.databind.JsonNode item : pkNode) {
+          pks.add(item.asText());
+        }
+        this.primaryKeys = pks;
+      } else {
+        this.primaryKeys =
+            Splitter.on(',').trimResults().omitEmptyStrings().splitToList(pkNode.asText());
+      }
+    } else {
+      this.primaryKeys = Collections.emptyList();
+    }
+
+    if (props.has("run_epoch")) {
+      this.runEpoch = props.get("run_epoch").asLong(1L);
+    } else {
+      this.runEpoch = 1L;
+    }
 
     if (table.getProperties().has(METHOD_PROPERTY)) {
       List<String> validMethods =
@@ -131,8 +183,23 @@ class BigQueryTable extends SchemaBaseBeamTable implements Serializable {
     LOG.info("BigQuery writeDisposition is set to: {}", writeDisposition);
   }
 
+  public boolean isCdcEnabled() {
+    return cdcEnabled;
+  }
+
+  public List<String> getPrimaryKeys() {
+    return primaryKeys;
+  }
+
+  public long getRunEpoch() {
+    return runEpoch;
+  }
+
   @Override
   public BeamTableStatistics getTableStatistics(PipelineOptions options) {
+    if (testBigQueryServices != null) {
+      return BeamTableStatistics.BOUNDED_UNKNOWN;
+    }
 
     if (rowCountStatistics == null) {
       rowCountStatistics = getRowCountFromBQ(options, bqLocation);
@@ -183,14 +250,116 @@ class BigQueryTable extends SchemaBaseBeamTable implements Serializable {
     return begin.apply("Read Input BQ Rows with push-down", typedRead);
   }
 
+  @VisibleForTesting static final String CDC_MUTATION_INFO = "row_mutation_info";
+  @VisibleForTesting static final String CDC_MUTATION_TYPE = "mutation_type";
+  @VisibleForTesting static final String CDC_MUTATION_SQN = "change_sequence_number";
+  @VisibleForTesting static final String CDC_RECORD = "record";
+
+  @VisibleForTesting
+  static final Schema CDC_MUTATION_SCHEMA =
+      Schema.builder().addStringField(CDC_MUTATION_TYPE).addStringField(CDC_MUTATION_SQN).build();
+
+  @VisibleForTesting
+  static PCollection<Row> packageCdcRows(PCollection<Row> input, long epoch) {
+    Schema inputSchema = input.getSchema();
+    Schema cdcRowSchema =
+        Schema.builder()
+            .addRowField(CDC_MUTATION_INFO, CDC_MUTATION_SCHEMA)
+            .addRowField(CDC_RECORD, inputSchema)
+            .build();
+
+    return input
+        .apply("PackageCdcRows", ParDo.of(new CdcRowPackagingFn(epoch, cdcRowSchema)))
+        .setRowSchema(cdcRowSchema);
+  }
+
+  @VisibleForTesting
+  static class CdcRowPackagingFn extends DoFn<Row, Row> {
+    private final long epoch;
+    private final Schema cdcRowSchema;
+
+    CdcRowPackagingFn(long epoch, Schema cdcRowSchema) {
+      this.epoch = epoch;
+      this.cdcRowSchema = cdcRowSchema;
+    }
+
+    @ProcessElement
+    public void processElement(
+        @Element Row record, OutputReceiver<Row> out, BoundedWindow window, PaneInfo paneInfo) {
+      long windowEndMillis = window.maxTimestamp().getMillis();
+      long paneIndex = paneInfo.getIndex();
+      String sqn = String.format("%08x/%016x/%08x", epoch, windowEndMillis, paneIndex);
+
+      Row mutationInfo = Row.withSchema(CDC_MUTATION_SCHEMA).addValues("UPSERT", sqn).build();
+
+      Row cdcRow = Row.withSchema(cdcRowSchema).addValues(mutationInfo, record).build();
+
+      out.output(cdcRow);
+    }
+  }
+
+  @VisibleForTesting
+  static Row createWriteConfigRow(String bqLocation, List<String> primaryKeys) {
+    BigQueryWriteConfiguration.Builder configBuilder =
+        BigQueryWriteConfiguration.builder()
+            .setTable(bqLocation)
+            .setUseCdcWrites(true)
+            .setUseAtLeastOnceSemantics(true)
+            .setAutoSharding(true)
+            .setWriteDisposition("WRITE_APPEND");
+
+    if (!primaryKeys.isEmpty()) {
+      configBuilder.setPrimaryKey(primaryKeys);
+    }
+
+    BigQueryWriteConfiguration config = configBuilder.build();
+    try {
+      return SchemaRegistry.createDefault()
+          .getToRowFunction(BigQueryWriteConfiguration.class)
+          .apply(config)
+          .sorted()
+          .toSnakeCase();
+    } catch (NoSuchSchemaException e) {
+      throw new RuntimeException("Unable to find schema for BigQueryWriteConfiguration", e);
+    }
+  }
+
   @Override
   public POutput buildIOWriter(PCollection<Row> input) {
-    return input.apply(
-        BigQueryIO.<Row>write()
-            .withSchema(BigQueryUtils.toTableSchema(getSchema()))
-            .withFormatFunction(BigQueryUtils.toTableRow())
-            .withWriteDisposition(writeDisposition)
-            .to(bqLocation));
+    if (!cdcEnabled) {
+      BigQueryIO.Write<Row> write =
+          BigQueryIO.<Row>write()
+              .withSchema(BigQueryUtils.toTableSchema(getSchema()))
+              .withFormatFunction(BigQueryUtils.toTableRow())
+              .withWriteDisposition(writeDisposition)
+              .to(bqLocation);
+      if (testBigQueryServices != null) {
+        write = write.withTestServices(testBigQueryServices);
+      }
+      return input.apply(write);
+    }
+
+    PCollection<Row> cdcRows = packageCdcRows(input, this.runEpoch);
+    Row configRow = createWriteConfigRow(bqLocation, primaryKeys);
+    BigQueryStorageWriteApiSchemaTransformProvider provider =
+        new BigQueryStorageWriteApiSchemaTransformProvider();
+
+    org.apache.beam.sdk.transforms.PTransform<PCollectionRowTuple, PCollectionRowTuple> transform =
+        provider.from(configRow);
+    if (testBigQueryServices != null
+        && transform
+            instanceof
+            org.apache.beam.sdk.io.gcp.bigquery.providers
+                .BigQueryStorageWriteApiSchemaTransformProvider
+                .BigQueryStorageWriteApiSchemaTransform) {
+      ((org.apache.beam.sdk.io.gcp.bigquery.providers.BigQueryStorageWriteApiSchemaTransformProvider
+                  .BigQueryStorageWriteApiSchemaTransform)
+              transform)
+          .setBigQueryServices(testBigQueryServices);
+    }
+
+    PCollectionRowTuple inputTuple = PCollectionRowTuple.of("input", cdcRows);
+    return transform.expand(inputTuple);
   }
 
   @Override
