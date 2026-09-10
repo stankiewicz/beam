@@ -23,10 +23,9 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-import java.util.Arrays;
-
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.util.Arrays;
 import java.util.stream.Stream;
 import org.apache.beam.sdk.extensions.sql.TableUtils;
 import org.apache.beam.sdk.extensions.sql.impl.BeamSqlEnv;
@@ -301,10 +300,7 @@ public class BeamDDLTest {
     SqlIdentifier name = new SqlIdentifier("mv_test", SqlParserPos.ZERO);
     SqlIdentifier key = new SqlIdentifier("freshness", SqlParserPos.ZERO);
     SqlNode value = SqlLiteral.createCharString("10s", SqlParserPos.ZERO);
-    SqlNodeList optionList =
-        new SqlNodeList(
-            Arrays.asList(key, value),
-            SqlParserPos.ZERO);
+    SqlNodeList optionList = new SqlNodeList(Arrays.asList(key, value), SqlParserPos.ZERO);
     SqlNode query = new SqlIdentifier("dummy_query", SqlParserPos.ZERO);
     SqlCreateMaterializedView createMv =
         new SqlCreateMaterializedView(SqlParserPos.ZERO, false, false, name, optionList, query);
