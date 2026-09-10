@@ -121,8 +121,85 @@ public class BeamSqlEnv {
     return planner.parse(sqlStatement).getKind().belongsTo(SqlKind.DDL);
   }
 
+  public org.apache.beam.vendor.calcite.v1_40_0.org.apache.calcite.sql.SqlNode parse(String sqlStatement) throws ParseException {
+    return planner.parse(sqlStatement);
+  }
+
   public void executeDdl(String sqlStatement) throws ParseException {
     BeamSqlParser.DDL_EXECUTOR.executeDdl(getContext(), planner.parse(sqlStatement));
+  }
+
+  /**
+   * Parses and compiles a {@code CREATE MATERIALIZED VIEW} DDL statement into an executable
+   * {@link BeamRelNode} continuous pipeline graph.
+   *
+   * <p>Executes the DDL metadata registration in the catalog, validates primary keys against
+   * temporal window boundary expressions, plans the query with materialized view options propagated
+   * to {@link org.apache.beam.sdk.extensions.sql.impl.rel.BeamAggregationRel}, and attaches a
+   * sink RelNode configured for the destination table.
+   */
+  public BeamRelNode parseMaterializedView(String sqlStatement) throws ParseException {
+    org.apache.beam.vendor.calcite.v1_40_0.org.apache.calcite.sql.SqlNode parsed = planner.parse(sqlStatement);
+    if (!(parsed instanceof org.apache.beam.sdk.extensions.sql.impl.parser.SqlCreateMaterializedView)) {
+      throw new IllegalArgumentException(
+          "Statement is not a CREATE MATERIALIZED VIEW: " + sqlStatement);
+    }
+    org.apache.beam.sdk.extensions.sql.impl.parser.SqlCreateMaterializedView createMv =
+        (org.apache.beam.sdk.extensions.sql.impl.parser.SqlCreateMaterializedView) parsed;
+
+    // Register metadata in catalog
+    executeDdl(sqlStatement);
+
+    Map<String, String> options = createMv.parseOptions();
+    MaterializedViewOptions mvOptions = MaterializedViewOptions.fromMap(options);
+
+    MaterializedViewOptions.set(mvOptions);
+    BeamRelNode queryRel;
+    try {
+      queryRel = parseQuery(createMv.getQuery().toString());
+    } finally {
+      MaterializedViewOptions.clear();
+    }
+
+    // Lineage and primary key validation
+    mvOptions.validateRexNodeLineage(queryRel);
+
+    String viewName = createMv.getViewName().toString();
+    org.apache.beam.vendor.calcite.v1_40_0.org.apache.calcite.schema.Table calciteTable =
+        connection.getCurrentSchemaPlus().getTable(viewName);
+    if (calciteTable == null) {
+      calciteTable =
+          connection.getCurrentSchemaPlus().getTable(viewName.toLowerCase(java.util.Locale.ROOT));
+    }
+    if (calciteTable instanceof BeamCalciteTable) {
+      BeamCalciteTable bct = (BeamCalciteTable) calciteTable;
+      org.apache.beam.vendor.calcite.v1_40_0.org.apache.calcite.prepare.CalciteCatalogReader catalogReader =
+          new org.apache.beam.vendor.calcite.v1_40_0.org.apache.calcite.prepare.CalciteCatalogReader(
+              org.apache.beam.vendor.calcite.v1_40_0.org.apache.calcite.jdbc.CalciteSchema.from(connection.getRootSchema()),
+              org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.collect.ImmutableList.of(
+                  connection.getCurrentSchemaPlus().getName()),
+              queryRel.getCluster().getTypeFactory(),
+              connection.config());
+      org.apache.beam.vendor.calcite.v1_40_0.org.apache.calcite.plan.RelOptTable relOptTable =
+          org.apache.beam.vendor.calcite.v1_40_0.org.apache.calcite.prepare.RelOptTableImpl.create(
+              catalogReader,
+              queryRel.getRowType(),
+              org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.collect.ImmutableList.of(viewName),
+              bct,
+              (org.apache.beam.vendor.calcite.v1_40_0.org.apache.calcite.linq4j.tree.Expression) null);
+      return (BeamRelNode)
+          bct.toModificationRel(
+              queryRel.getCluster(),
+              relOptTable,
+              catalogReader,
+              queryRel,
+              org.apache.beam.vendor.calcite.v1_40_0.org.apache.calcite.rel.core.TableModify.Operation.INSERT,
+              null,
+              null,
+              false);
+    }
+
+    return queryRel;
   }
 
   public CalcitePrepare.Context getContext() {
