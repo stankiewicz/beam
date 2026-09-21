@@ -21,6 +21,9 @@ import static org.apache.beam.sdk.schemas.Schema.toSchema;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+
+import java.util.Arrays;
 
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -38,6 +41,7 @@ import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.vendor.calcite.v1_40_0.org.apache.calcite.sql.SqlIdentifier;
 import org.apache.beam.vendor.calcite.v1_40_0.org.apache.calcite.sql.SqlLiteral;
 import org.apache.beam.vendor.calcite.v1_40_0.org.apache.calcite.sql.SqlNode;
+import org.apache.beam.vendor.calcite.v1_40_0.org.apache.calcite.sql.SqlNodeList;
 import org.apache.beam.vendor.calcite.v1_40_0.org.apache.calcite.sql.SqlWriter;
 import org.apache.beam.vendor.calcite.v1_40_0.org.apache.calcite.sql.parser.SqlParserPos;
 import org.apache.beam.vendor.calcite.v1_40_0.org.apache.calcite.sql.pretty.SqlPrettyWriter;
@@ -248,6 +252,70 @@ public class BeamDDLTest {
     assertEquals(
         "CREATE AGGREGATE FUNCTION foo USING JAR 'path/to/udf.jar'",
         sqlWriter.toSqlString().getSql());
+  }
+
+  @Test
+  public void testParseCreateMaterializedView() throws Exception {
+    TestTableProvider tableProvider = new TestTableProvider();
+    BeamSqlEnv env = BeamSqlEnv.withTableProvider(tableProvider);
+
+    String ddl =
+        "CREATE MATERIALIZED VIEW mv_test\n"
+            + "OPTIONS (\n"
+            + "  freshness = '10s',\n"
+            + "  primary_keys = 'id',\n"
+            + "  target_type = 'test'\n"
+            + ")\n"
+            + "AS\n"
+            + "SELECT id, count(*) FROM clickstream GROUP BY id";
+
+    env.executeDdl(ddl);
+    Table table = tableProvider.getTables().get("mv_test");
+    assertNotNull(table);
+    assertEquals("test", table.getType());
+    assertEquals("10s", table.getProperties().get("freshness").asText());
+    assertEquals("id", table.getProperties().get("primary_keys").asText());
+  }
+
+  @Test
+  public void testParseCreateMaterializedView_ifNotExists() throws Exception {
+    TestTableProvider tableProvider = new TestTableProvider();
+    BeamSqlEnv env = BeamSqlEnv.withTableProvider(tableProvider);
+
+    String ddl =
+        "CREATE MATERIALIZED VIEW IF NOT EXISTS mv_test\n"
+            + "OPTIONS (\n"
+            + "  target_type = 'test'\n"
+            + ")\n"
+            + "AS\n"
+            + "SELECT 1";
+
+    env.executeDdl(ddl);
+    assertNotNull(tableProvider.getTables().get("mv_test"));
+    env.executeDdl(ddl);
+    assertNotNull(tableProvider.getTables().get("mv_test"));
+  }
+
+  @Test
+  public void unparseCreateMaterializedView() {
+    SqlIdentifier name = new SqlIdentifier("mv_test", SqlParserPos.ZERO);
+    SqlIdentifier key = new SqlIdentifier("freshness", SqlParserPos.ZERO);
+    SqlNode value = SqlLiteral.createCharString("10s", SqlParserPos.ZERO);
+    SqlNodeList optionList =
+        new SqlNodeList(
+            Arrays.asList(key, value),
+            SqlParserPos.ZERO);
+    SqlNode query = new SqlIdentifier("dummy_query", SqlParserPos.ZERO);
+    SqlCreateMaterializedView createMv =
+        new SqlCreateMaterializedView(SqlParserPos.ZERO, false, false, name, optionList, query);
+    SqlWriter sqlWriter = new SqlPrettyWriter(BeamBigQuerySqlDialect.DEFAULT);
+
+    createMv.unparse(sqlWriter, 0, 0);
+
+    String unparsed = sqlWriter.toSqlString().getSql();
+    assertTrue(unparsed.contains("CREATE MATERIALIZED VIEW mv_test"));
+    assertTrue(unparsed.contains("OPTIONS"));
+    assertTrue(unparsed.contains("AS"));
   }
 
   private static Table mockTable(String name, String type, String comment, ObjectNode properties) {
