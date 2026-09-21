@@ -27,8 +27,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import org.apache.beam.sdk.io.gcp.bigquery.RowMutationInformation;
 import org.apache.beam.sdk.io.gcp.bigquery.TableRowJsonCoder;
 import org.apache.beam.sdk.util.Preconditions;
+import org.apache.beam.sdk.values.KV;
 import org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.collect.Lists;
 import org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.collect.Maps;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -43,6 +45,7 @@ class TableContainer {
   List<TableRow> rows;
 
   Map<List<Object>, TableRow> keyedRows;
+  Map<List<Object>, RowMutationInformation> keyedMutations;
   List<String> ids;
   Long sizeBytes;
 
@@ -51,6 +54,7 @@ class TableContainer {
 
     this.rows = new ArrayList<>();
     this.keyedRows = Maps.newHashMap();
+    this.keyedMutations = Maps.newHashMap();
     this.ids = new ArrayList<>();
     this.sizeBytes = 0L;
     // extract primary key information from Table if present
@@ -133,6 +137,11 @@ class TableContainer {
   }
 
   void upsertRow(TableRow row, long sequenceNumber) {
+    upsertRow(row, sequenceNumber, null);
+  }
+
+  void upsertRow(
+      TableRow row, long sequenceNumber, @Nullable RowMutationInformation mutationInformation) {
     List<Object> primaryKey = getPrimaryKey(row);
     if (primaryKey == null) {
       throw new RuntimeException("Upserts only allowed when using primary keys");
@@ -144,6 +153,9 @@ class TableContainer {
     }
 
     TableRow oldValue = keyedRows.put(primaryKey, row);
+    if (mutationInformation != null) {
+      keyedMutations.put(primaryKey, mutationInformation);
+    }
     try {
       long tableSize = table.getNumBytes() == null ? 0L : table.getNumBytes();
       if (oldValue != null) {
@@ -158,6 +170,11 @@ class TableContainer {
   }
 
   void deleteRow(TableRow row, long sequenceNumber) {
+    deleteRow(row, sequenceNumber, null);
+  }
+
+  void deleteRow(
+      TableRow row, long sequenceNumber, @Nullable RowMutationInformation mutationInformation) {
     List<Object> primaryKey = getPrimaryKey(row);
     if (primaryKey == null) {
       throw new RuntimeException("Upserts only allowed when using primary keys");
@@ -169,6 +186,7 @@ class TableContainer {
     }
 
     TableRow oldValue = keyedRows.remove(primaryKey);
+    keyedMutations.remove(primaryKey);
     try {
       if (oldValue != null) {
         long tableSize = table.getNumBytes() == null ? 0L : table.getNumBytes();
@@ -189,6 +207,24 @@ class TableContainer {
       return Lists.newArrayList(keyedRows.values());
     } else {
       return rows;
+    }
+  }
+
+  List<KV<TableRow, RowMutationInformation>> getRowsWithMutationInformation() {
+    if (primaryKeyColumns != null) {
+      List<KV<TableRow, RowMutationInformation>> result =
+          Lists.newArrayListWithCapacity(keyedRows.size());
+      for (Map.Entry<List<Object>, TableRow> entry : keyedRows.entrySet()) {
+        result.add(KV.of(entry.getValue(), keyedMutations.get(entry.getKey())));
+      }
+      return result;
+    } else {
+      List<KV<TableRow, RowMutationInformation>> result =
+          Lists.newArrayListWithCapacity(rows.size());
+      for (TableRow r : rows) {
+        result.add(KV.of(r, null));
+      }
+      return result;
     }
   }
 

@@ -23,8 +23,11 @@ import org.apache.beam.sdk.extensions.sql.meta.BeamSqlTable;
 import org.apache.beam.sdk.extensions.sql.meta.Table;
 import org.apache.beam.sdk.extensions.sql.meta.provider.InMemoryMetaTableProvider;
 import org.apache.beam.sdk.extensions.sql.meta.provider.TableProvider;
+import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServices;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryUtils.ConversionOptions;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryUtils.ConversionOptions.TruncateTimestamps;
+import org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.annotations.VisibleForTesting;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 /**
  * BigQuery table provider.
@@ -43,6 +46,12 @@ import org.apache.beam.sdk.io.gcp.bigquery.BigQueryUtils.ConversionOptions.Trunc
  */
 @AutoService(TableProvider.class)
 public class BigQueryTableProvider extends InMemoryMetaTableProvider {
+  private @Nullable BigQueryServices testBigQueryServices = null;
+
+  @VisibleForTesting
+  public void setTestBigQueryServices(BigQueryServices testBigQueryServices) {
+    this.testBigQueryServices = testBigQueryServices;
+  }
 
   @Override
   public String getTableType() {
@@ -51,7 +60,11 @@ public class BigQueryTableProvider extends InMemoryMetaTableProvider {
 
   @Override
   public BeamSqlTable buildBeamSqlTable(Table table) {
-    return new BigQueryTable(table, getConversionOptions(table.getProperties()));
+    BigQueryTable bqTable = new BigQueryTable(table, getConversionOptions(table.getProperties()));
+    if (testBigQueryServices != null) {
+      bqTable.setTestBigQueryServices(testBigQueryServices);
+    }
+    return bqTable;
   }
 
   protected static ConversionOptions getConversionOptions(ObjectNode properties) {

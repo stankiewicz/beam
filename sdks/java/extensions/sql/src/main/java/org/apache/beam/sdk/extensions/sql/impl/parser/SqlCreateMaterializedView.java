@@ -34,7 +34,6 @@ import org.apache.beam.sdk.extensions.sql.meta.Table;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.vendor.calcite.v1_40_0.org.apache.calcite.jdbc.CalcitePrepare;
 import org.apache.beam.vendor.calcite.v1_40_0.org.apache.calcite.jdbc.CalciteSchema;
-import org.apache.beam.vendor.calcite.v1_40_0.org.apache.calcite.sql.SqlCharStringLiteral;
 import org.apache.beam.vendor.calcite.v1_40_0.org.apache.calcite.sql.SqlCreate;
 import org.apache.beam.vendor.calcite.v1_40_0.org.apache.calcite.sql.SqlIdentifier;
 import org.apache.beam.vendor.calcite.v1_40_0.org.apache.calcite.sql.SqlKind;
@@ -128,14 +127,16 @@ public class SqlCreateMaterializedView extends SqlCreate
     for (int i = 0; i < list.size(); i += 2) {
       SqlNode keyNode = list.get(i);
       SqlNode valueNode = list.get(i + 1);
-      String key = keyNode instanceof SqlIdentifier
-          ? ((SqlIdentifier) keyNode).getSimple().toLowerCase()
-          : SqlDdlNodes.getString(keyNode) != null
-              ? SqlDdlNodes.getString(keyNode).toLowerCase()
-              : keyNode.toString().toLowerCase();
-      String value = SqlDdlNodes.getString(valueNode) != null
-          ? SqlDdlNodes.getString(valueNode)
-          : valueNode.toString();
+      String key =
+          keyNode instanceof SqlIdentifier
+              ? ((SqlIdentifier) keyNode).getSimple().toLowerCase()
+              : SqlDdlNodes.getString(keyNode) != null
+                  ? SqlDdlNodes.getString(keyNode).toLowerCase()
+                  : keyNode.toString().toLowerCase();
+      String value =
+          SqlDdlNodes.getString(valueNode) != null
+              ? SqlDdlNodes.getString(valueNode)
+              : valueNode.toString();
       options.put(key, value);
     }
     return options;
@@ -152,7 +153,8 @@ public class SqlCreateMaterializedView extends SqlCreate
       return;
     }
 
-    org.apache.beam.vendor.calcite.v1_40_0.org.apache.calcite.schema.Schema schema = pair.left.schema;
+    org.apache.beam.vendor.calcite.v1_40_0.org.apache.calcite.schema.Schema schema =
+        pair.left.schema;
     BeamCalciteSchema beamCalciteSchema;
     Map<String, String> options = parseOptions();
     String targetType = options.getOrDefault("target_type", "bigquery");

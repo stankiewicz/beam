@@ -103,7 +103,10 @@ public class MaterializedViewOptions implements Serializable {
     List<String> primaryKeys = new ArrayList<>();
     if (options.containsKey("primary_keys")) {
       primaryKeys =
-          Splitter.on(',').trimResults().omitEmptyStrings().splitToList(options.get("primary_keys"));
+          Splitter.on(',')
+              .trimResults()
+              .omitEmptyStrings()
+              .splitToList(options.get("primary_keys"));
     }
 
     String targetType = options.getOrDefault("target_type", "bigquery");

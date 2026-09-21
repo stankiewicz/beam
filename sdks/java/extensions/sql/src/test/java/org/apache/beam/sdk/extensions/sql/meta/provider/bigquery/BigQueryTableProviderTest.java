@@ -163,6 +163,31 @@ public class BigQueryTableProviderTest {
         });
   }
 
+  @Test
+  public void testBuildBeamSqlTable_withCdcProperties() {
+    Table table =
+        fakeTableWithProperties(
+            "hello",
+            "{\n" + "  \"primary_keys\": [\"id\", \"name\"],\n" + "  \"run_epoch\": 42\n" + "}");
+    BigQueryTable sqlTable = (BigQueryTable) provider.buildBeamSqlTable(table);
+
+    assertTrue(sqlTable.cdcEnabled);
+    assertEquals(java.util.Arrays.asList("id", "name"), sqlTable.primaryKeys);
+    assertEquals(42L, sqlTable.runEpoch);
+  }
+
+  @Test
+  public void testBuildBeamSqlTable_withExplicitCdcFlag() {
+    Table table =
+        fakeTableWithProperties(
+            "hello", "{\n" + "  \"cdc\": \"true\",\n" + "  \"primary_keys\": [\"id\"]\n" + "}");
+    BigQueryTable sqlTable = (BigQueryTable) provider.buildBeamSqlTable(table);
+
+    assertTrue(sqlTable.cdcEnabled);
+    assertEquals(java.util.Arrays.asList("id"), sqlTable.primaryKeys);
+    assertEquals(1L, sqlTable.runEpoch);
+  }
+
   private static Table fakeTable(String name) {
     return Table.builder()
         .name(name)
