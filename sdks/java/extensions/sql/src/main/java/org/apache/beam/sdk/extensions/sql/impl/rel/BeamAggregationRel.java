@@ -39,13 +39,18 @@ import org.apache.beam.sdk.transforms.GroupByKey;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.WithTimestamps;
+import org.apache.beam.sdk.transforms.windowing.AfterPane;
+import org.apache.beam.sdk.transforms.windowing.AfterProcessingTime;
+import org.apache.beam.sdk.transforms.windowing.AfterWatermark;
 import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
 import org.apache.beam.sdk.transforms.windowing.DefaultTrigger;
 import org.apache.beam.sdk.transforms.windowing.FixedWindows;
 import org.apache.beam.sdk.transforms.windowing.GlobalWindows;
 import org.apache.beam.sdk.transforms.windowing.IntervalWindow;
+import org.apache.beam.sdk.transforms.windowing.Repeatedly;
 import org.apache.beam.sdk.transforms.windowing.Sessions;
 import org.apache.beam.sdk.transforms.windowing.SlidingWindows;
+import org.apache.beam.sdk.transforms.windowing.Trigger;
 import org.apache.beam.sdk.transforms.windowing.Window;
 import org.apache.beam.sdk.transforms.windowing.WindowFn;
 import org.apache.beam.sdk.values.PCollection;
@@ -72,6 +77,9 @@ import org.joda.time.Duration;
 public class BeamAggregationRel extends Aggregate implements BeamRelNode {
   private @Nullable WindowFn<Row, IntervalWindow> windowFn;
   private final int windowFieldIndex;
+  private final @Nullable Duration freshness;
+  private final @Nullable Duration triggerDebounce;
+  private final @Nullable Duration allowedLateness;
 
   public BeamAggregationRel(
       RelOptCluster cluster,
@@ -82,12 +90,56 @@ public class BeamAggregationRel extends Aggregate implements BeamRelNode {
       List<AggregateCall> aggCalls,
       @Nullable WindowFn<Row, IntervalWindow> windowFn,
       int windowFieldIndex) {
+    this(
+        cluster,
+        traits,
+        child,
+        groupSet,
+        groupSets,
+        aggCalls,
+        windowFn,
+        windowFieldIndex,
+        null,
+        null,
+        null);
+  }
 
+  public BeamAggregationRel(
+      RelOptCluster cluster,
+      RelTraitSet traits,
+      RelNode child,
+      ImmutableBitSet groupSet,
+      List<ImmutableBitSet> groupSets,
+      List<AggregateCall> aggCalls,
+      @Nullable WindowFn<Row, IntervalWindow> windowFn,
+      int windowFieldIndex,
+      @Nullable Duration freshness,
+      @Nullable Duration triggerDebounce,
+      @Nullable Duration allowedLateness) {
     super(cluster, traits, child, groupSet, groupSets, aggCalls);
     assert getGroupType() == Group.SIMPLE;
 
     this.windowFn = windowFn;
     this.windowFieldIndex = windowFieldIndex;
+    this.freshness = freshness;
+    this.triggerDebounce = triggerDebounce;
+    this.allowedLateness = allowedLateness;
+  }
+
+  public @Nullable Duration getFreshness() {
+    return freshness;
+  }
+
+  public @Nullable Duration getTriggerDebounce() {
+    return triggerDebounce;
+  }
+
+  public @Nullable Duration getAllowedLateness() {
+    return allowedLateness;
+  }
+
+  public int getWindowFieldIndex() {
+    return windowFieldIndex;
   }
 
   @Override
@@ -192,7 +244,14 @@ public class BeamAggregationRel extends Aggregate implements BeamRelNode {
             .collect(toList());
 
     return new Transform(
-        windowFn, windowFieldIndex, getGroupSet(), aggregationAdapters, outputSchema);
+        windowFn,
+        windowFieldIndex,
+        getGroupSet(),
+        aggregationAdapters,
+        outputSchema,
+        freshness,
+        triggerDebounce,
+        allowedLateness);
   }
 
   private static class FieldAggregation implements Serializable {
@@ -219,12 +278,19 @@ public class BeamAggregationRel extends Aggregate implements BeamRelNode {
     private final int groupSetCount;
     private boolean ignoreValues;
 
+    private final @Nullable Duration freshness;
+    private final @Nullable Duration triggerDebounce;
+    private final @Nullable Duration allowedLateness;
+
     private Transform(
         WindowFn<Row, IntervalWindow> windowFn,
         int windowFieldIndex,
         ImmutableBitSet groupSet,
         List<FieldAggregation> fieldAggregations,
-        Schema outputSchema) {
+        Schema outputSchema,
+        @Nullable Duration freshness,
+        @Nullable Duration triggerDebounce,
+        @Nullable Duration allowedLateness) {
       this.windowFn = windowFn;
       this.windowFieldIndex = windowFieldIndex;
       this.fieldAggregations = fieldAggregations;
@@ -233,6 +299,9 @@ public class BeamAggregationRel extends Aggregate implements BeamRelNode {
       this.ignoreValues = false;
       this.keyFieldsIds =
           groupSet.asList().stream().filter(i -> i != windowFieldIndex).collect(toList());
+      this.freshness = freshness;
+      this.triggerDebounce = triggerDebounce;
+      this.allowedLateness = allowedLateness;
     }
 
     @Override
@@ -314,16 +383,38 @@ public class BeamAggregationRel extends Aggregate implements BeamRelNode {
 
     /** Extract timestamps from the windowFieldIndex, then window into windowFns. */
     private PCollection<Row> assignTimestampsAndWindow(PCollection<Row> upstream) {
-      PCollection<Row> windowedStream;
-      windowedStream =
+      PCollection<Row> timestampedStream =
           upstream
               .apply(
                   "assignEventTimestamp",
                   WithTimestamps.<Row>of(row -> row.getDateTime(windowFieldIndex).toInstant())
                       .withAllowedTimestampSkew(Duration.millis(Long.MAX_VALUE)))
-              .setCoder(upstream.getCoder())
-              .apply(Window.into(windowFn));
-      return windowedStream;
+              .setCoder(upstream.getCoder());
+
+      if (freshness != null) {
+        Trigger.OnceTrigger earlyTrigger =
+            triggerDebounce != null
+                ? AfterProcessingTime.pastFirstElementInPane()
+                    .plusDelayOf(freshness)
+                    .alignedTo(triggerDebounce)
+                : AfterProcessingTime.pastFirstElementInPane().plusDelayOf(freshness);
+
+        Window<Row> windowTransform =
+            Window.<Row>into(windowFn)
+                .triggering(
+                    Repeatedly.forever(
+                        AfterWatermark.pastEndOfWindow()
+                            .withEarlyFirings(earlyTrigger)
+                            .withLateFirings(AfterPane.elementCountAtLeast(1))))
+                .accumulatingFiredPanes();
+
+        if (allowedLateness != null) {
+          windowTransform = windowTransform.withAllowedLateness(allowedLateness);
+        }
+        return timestampedStream.apply("windowWithTriggers", windowTransform);
+      } else {
+        return timestampedStream.apply("windowDefault", Window.into(windowFn));
+      }
     }
 
     /**
@@ -389,6 +480,16 @@ public class BeamAggregationRel extends Aggregate implements BeamRelNode {
       List<ImmutableBitSet> groupSets,
       List<AggregateCall> aggCalls) {
     return new BeamAggregationRel(
-        getCluster(), traitSet, input, groupSet, groupSets, aggCalls, windowFn, windowFieldIndex);
+        getCluster(),
+        traitSet,
+        input,
+        groupSet,
+        groupSets,
+        aggCalls,
+        windowFn,
+        windowFieldIndex,
+        freshness,
+        triggerDebounce,
+        allowedLateness);
   }
 }
