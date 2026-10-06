@@ -19,6 +19,7 @@ package org.apache.beam.sdk.extensions.sql.impl.rel;
 
 import java.math.BigDecimal;
 import org.apache.beam.sdk.extensions.sql.impl.BeamTableStatistics;
+import org.apache.beam.sdk.extensions.sql.impl.MaterializedViewOptions;
 import org.apache.beam.sdk.extensions.sql.impl.planner.BeamRelMetadataQuery;
 import org.apache.beam.sdk.extensions.sql.impl.planner.NodeStats;
 import org.apache.beam.sdk.extensions.sql.meta.provider.test.TestBoundedTable;
@@ -150,5 +151,54 @@ public class BeamAggregationRelTest extends BaseRelTest {
             + " GROUP BY order_id, HOP(order_time, INTERVAL '1' SECOND,INTERVAL '3' SECOND)";
     NodeStats estimate1 = getEstimateOf(sql);
     Assert.assertEquals(3d, estimate1.getRate(), 0.01);
+  }
+
+  @Test
+  public void testBeamAggregationRel_withMaterializedViewOptions() {
+    String sql =
+        "select order_id, sum(site_id) as sum_site_id FROM ORDER_DETAILS_UNBOUNDED "
+            + " GROUP BY order_id, TUMBLE(order_time, INTERVAL '1' HOUR)";
+
+    Duration freshness = Duration.standardSeconds(10);
+    Duration debounce = Duration.standardSeconds(2);
+    Duration lateness = Duration.standardMinutes(5);
+
+    MaterializedViewOptions mvOptions =
+        new MaterializedViewOptions(
+            freshness,
+            debounce,
+            lateness,
+            1L,
+            java.util.Collections.singletonList("order_id"),
+            "test",
+            null);
+
+    MaterializedViewOptions.set(mvOptions);
+    try {
+      RelNode root = env.parseQuery(sql);
+      while (!(root instanceof BeamAggregationRel)) {
+        root = root.getInput(0);
+      }
+      BeamAggregationRel aggRel = (BeamAggregationRel) root;
+      Assert.assertEquals(freshness, aggRel.getFreshness());
+      Assert.assertEquals(debounce, aggRel.getTriggerDebounce());
+      Assert.assertEquals(lateness, aggRel.getAllowedLateness());
+
+      BeamAggregationRel copied =
+          (BeamAggregationRel)
+              aggRel.copy(
+                  aggRel.getTraitSet(),
+                  aggRel.getInput(),
+                  aggRel.getGroupSet(),
+                  aggRel.getGroupSets(),
+                  aggRel.getAggCallList());
+
+      Assert.assertEquals(freshness, copied.getFreshness());
+      Assert.assertEquals(debounce, copied.getTriggerDebounce());
+      Assert.assertEquals(lateness, copied.getAllowedLateness());
+      Assert.assertEquals(aggRel.getWindowFieldIndex(), copied.getWindowFieldIndex());
+    } finally {
+      MaterializedViewOptions.clear();
+    }
   }
 }

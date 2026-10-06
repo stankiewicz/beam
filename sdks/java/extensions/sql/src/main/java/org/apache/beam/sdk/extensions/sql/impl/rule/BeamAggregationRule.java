@@ -19,6 +19,7 @@ package org.apache.beam.sdk.extensions.sql.impl.rule;
 
 import java.util.ArrayList;
 import java.util.List;
+import org.apache.beam.sdk.extensions.sql.impl.MaterializedViewOptions;
 import org.apache.beam.sdk.extensions.sql.impl.rel.BeamAggregationRel;
 import org.apache.beam.sdk.extensions.sql.impl.rel.BeamLogicalConvention;
 import org.apache.beam.sdk.transforms.windowing.FixedWindows;
@@ -65,7 +66,12 @@ public class BeamAggregationRule extends RelOptRule {
       return;
     }
 
-    RelNode x = updateWindow(aggregate, project);
+    MaterializedViewOptions mvOptions = MaterializedViewOptions.get();
+    if (mvOptions == null && call.getPlanner() != null && call.getPlanner().getContext() != null) {
+      mvOptions = call.getPlanner().getContext().unwrap(MaterializedViewOptions.class);
+    }
+
+    RelNode x = updateWindow(aggregate, project, mvOptions);
     if (x == null) {
       // Non-windowed case should be handled by the BeamBasicAggregationRule
       return;
@@ -74,6 +80,11 @@ public class BeamAggregationRule extends RelOptRule {
   }
 
   private static RelNode updateWindow(Aggregate aggregate, Project project) {
+    return updateWindow(aggregate, project, null);
+  }
+
+  private static RelNode updateWindow(
+      Aggregate aggregate, Project project, @Nullable MaterializedViewOptions mvOptions) {
     ImmutableBitSet groupByFields = aggregate.getGroupSet();
     ArrayList<RexNode> projects = new ArrayList(project.getProjects());
 
@@ -102,6 +113,10 @@ public class BeamAggregationRule extends RelOptRule {
     final Project newProject =
         project.copy(project.getTraitSet(), project.getInput(), projects, project.getRowType());
 
+    Duration freshness = mvOptions != null ? mvOptions.getFreshness() : null;
+    Duration triggerDebounce = mvOptions != null ? mvOptions.getTriggerDebounce() : null;
+    Duration allowedLateness = mvOptions != null ? mvOptions.getAllowedLateness() : null;
+
     return new BeamAggregationRel(
         aggregate.getCluster(),
         aggregate.getTraitSet().replace(BeamLogicalConvention.INSTANCE),
@@ -110,7 +125,10 @@ public class BeamAggregationRule extends RelOptRule {
         aggregate.getGroupSets(),
         aggregate.getAggCallList(),
         windowFn,
-        windowFieldIndex);
+        windowFieldIndex,
+        freshness,
+        triggerDebounce,
+        allowedLateness);
   }
 
   /**
