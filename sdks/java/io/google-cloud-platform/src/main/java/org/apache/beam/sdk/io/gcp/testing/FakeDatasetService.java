@@ -76,11 +76,13 @@ import org.apache.beam.sdk.io.gcp.bigquery.BigQueryServices.WriteStreamService;
 import org.apache.beam.sdk.io.gcp.bigquery.ErrorContainer;
 import org.apache.beam.sdk.io.gcp.bigquery.InsertRetryPolicy;
 import org.apache.beam.sdk.io.gcp.bigquery.InsertRetryPolicy.Context;
+import org.apache.beam.sdk.io.gcp.bigquery.RowMutationInformation;
 import org.apache.beam.sdk.io.gcp.bigquery.StorageApiCDC;
 import org.apache.beam.sdk.io.gcp.bigquery.TableRowToStorageApiProto;
 import org.apache.beam.sdk.transforms.windowing.GlobalWindow;
 import org.apache.beam.sdk.transforms.windowing.PaneInfo;
 import org.apache.beam.sdk.values.FailsafeValueInSingleWindow;
+import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.ValueInSingleWindow;
 import org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.base.Preconditions;
 import org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.base.Predicates;
@@ -130,11 +132,21 @@ public class FakeDatasetService implements DatasetService, WriteStreamService, S
       final TableRow tableRow;
       final UpdateType updateType;
       final long sqn;
+      final @Nullable RowMutationInformation mutationInformation;
 
       public Entry(TableRow tableRow, UpdateType updateType, long sqn) {
+        this(tableRow, updateType, sqn, null);
+      }
+
+      public Entry(
+          TableRow tableRow,
+          UpdateType updateType,
+          long sqn,
+          @Nullable RowMutationInformation mutationInformation) {
         this.tableRow = tableRow;
         this.updateType = updateType;
         this.sqn = sqn;
+        this.mutationInformation = mutationInformation;
       }
     }
 
@@ -220,10 +232,11 @@ public class FakeDatasetService implements DatasetService, WriteStreamService, S
           tableContainer.addRow(entry.tableRow, "");
           break;
         case UPSERT:
-          tableContainer.upsertRow(entry.tableRow, entry.sqn);
+          tableContainer.upsertRow(entry.tableRow, entry.sqn, entry.mutationInformation);
           break;
         case DELETE:
-          tableContainer.deleteRow(entry.tableRow, entry.sqn);
+          tableContainer.deleteRow(entry.tableRow, entry.sqn, entry.mutationInformation);
+          break;
       }
     }
 
@@ -317,6 +330,29 @@ public class FakeDatasetService implements DatasetService, WriteStreamService, S
     synchronized (FakeDatasetService.class) {
       return getTableContainer(projectId, datasetId, tableId).getRows();
     }
+  }
+
+  public List<KV<TableRow, RowMutationInformation>> getAllRowsWithMutationInformation(
+      TableReference tableReference) throws InterruptedException, IOException {
+    return getAllRowsWithMutationInformation(
+        tableReference.getProjectId(), tableReference.getDatasetId(), tableReference.getTableId());
+  }
+
+  public List<KV<TableRow, RowMutationInformation>> getAllRowsWithMutationInformation(
+      String projectId, String datasetId, String tableId) throws InterruptedException, IOException {
+    synchronized (FakeDatasetService.class) {
+      return getTableContainer(projectId, datasetId, tableId).getRowsWithMutationInformation();
+    }
+  }
+
+  public List<KV<TableRow, RowMutationInformation>> getRowsWithMutationInformation(
+      TableReference tableReference) throws InterruptedException, IOException {
+    return getAllRowsWithMutationInformation(tableReference);
+  }
+
+  public List<KV<TableRow, RowMutationInformation>> getRowsWithMutationInformation(
+      String projectId, String datasetId, String tableId) throws InterruptedException, IOException {
+    return getAllRowsWithMutationInformation(projectId, datasetId, tableId);
   }
 
   public List<String> getAllIds(String projectId, String datasetId, String tableId)
@@ -858,10 +894,26 @@ public class FakeDatasetService implements DatasetService, WriteStreamService, S
             if (fieldDescriptor != null) {
               insertTypeStr = (String) msg.getField(fieldDescriptor);
             }
+            String rawChangeSequenceNumHex = null;
             fieldDescriptor = protoDescriptor.findFieldByName(StorageApiCDC.CHANGE_SQN_COLUMN);
             if (fieldDescriptor != null) {
               String changeSequenceNumHex = (String) msg.getField(fieldDescriptor);
-              changeSequenceNum = Long.parseUnsignedLong(changeSequenceNumHex, 16);
+              rawChangeSequenceNumHex = changeSequenceNumHex;
+              try {
+                changeSequenceNum = Long.parseUnsignedLong(changeSequenceNumHex, 16);
+              } catch (NumberFormatException e) {
+                // Multi-part hexadecimal sequence number separated by '/'
+                String[] parts = changeSequenceNumHex.split("/");
+                long combined = 0;
+                for (String part : parts) {
+                  try {
+                    combined = (combined << 16) + Long.parseUnsignedLong(part, 16);
+                  } catch (NumberFormatException ignored) {
+                    combined = (combined * 31) + part.hashCode();
+                  }
+                }
+                changeSequenceNum = combined;
+              }
             }
             Stream.Entry.UpdateType insertType = Stream.Entry.UpdateType.INSERT;
             if (insertTypeStr != null) {
@@ -876,7 +928,15 @@ public class FakeDatasetService implements DatasetService, WriteStreamService, S
                   !usedForInsert, "Stream can't be used for update and insert.");
               usedForUpdate = true;
             }
-            streamEntries.add(new Stream.Entry(tableRow, insertType, changeSequenceNum));
+            RowMutationInformation mutationInformation = null;
+            if (insertTypeStr != null && rawChangeSequenceNumHex != null) {
+              RowMutationInformation.MutationType mutationType =
+                  RowMutationInformation.MutationType.valueOf(insertTypeStr);
+              mutationInformation =
+                  RowMutationInformation.of(mutationType, rawChangeSequenceNumHex);
+            }
+            streamEntries.add(
+                new Stream.Entry(tableRow, insertType, changeSequenceNum, mutationInformation));
           }
           if (!rowIndexToErrorMessage.isEmpty()) {
             return ApiFutures.immediateFailedFuture(
