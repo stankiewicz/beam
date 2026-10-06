@@ -30,6 +30,7 @@ data: {
         "org.apache.beam.sdk.extensions.sql.impl.parser.SqlCreateDatabase"
         "org.apache.beam.sdk.extensions.sql.impl.parser.SqlCreateExternalTable"
         "org.apache.beam.sdk.extensions.sql.impl.parser.SqlCreateFunction"
+        "org.apache.beam.sdk.extensions.sql.impl.parser.SqlCreateMaterializedView"
         "org.apache.beam.sdk.extensions.sql.impl.parser.SqlDropCatalog"
         "org.apache.beam.sdk.extensions.sql.impl.parser.SqlDropDatabase"
         "org.apache.beam.sdk.extensions.sql.impl.parser.SqlDdlNodes"
@@ -59,6 +60,7 @@ data: {
         "PARTITIONS"
         "USE"
         "UNSET"
+        "MATERIALIZED"
       ]
 
       # List of keywords from "keywords" section that are not reserved.
@@ -473,6 +475,7 @@ data: {
         "SqlCreateDatabase"
         "SqlCreateExternalTable"
         "SqlCreateFunction"
+        "SqlCreateMaterializedView"
         "SqlCreateTableNotSupportedMessage"
       ]
 

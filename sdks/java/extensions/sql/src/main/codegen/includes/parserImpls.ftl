@@ -62,6 +62,7 @@ void Option(List<SqlNode> list) :
 }
 {
     id = SimpleIdentifier()
+    [ <EQ> ]
     value = Literal() {
         list.add(id);
         list.add(value);
@@ -596,6 +597,33 @@ SqlCreate SqlCreateExternalTable(Span s, boolean replace) :
                 comment,
                 location,
                 tblProperties);
+    }
+}
+
+SqlCreate SqlCreateMaterializedView(Span s, boolean replace) :
+{
+    final boolean ifNotExists;
+    final SqlIdentifier id;
+    SqlNodeList optionList = null;
+    final SqlNode query;
+}
+{
+    <MATERIALIZED> <VIEW> {
+        s.add(this);
+    }
+    ifNotExists = IfNotExistsOpt()
+    id = CompoundIdentifier()
+    [ optionList = Options() ]
+    <AS>
+    query = OrderedQueryOrExpr(ExprContext.ACCEPT_QUERY)
+    {
+        return new SqlCreateMaterializedView(
+            s.end(this),
+            replace,
+            ifNotExists,
+            id,
+            optionList,
+            query);
     }
 }
 
