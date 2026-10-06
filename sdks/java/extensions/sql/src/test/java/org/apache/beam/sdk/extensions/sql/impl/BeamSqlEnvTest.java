@@ -67,4 +67,21 @@ public class BeamSqlEnvTest {
         .setPipelineOptions(PipelineOptionsFactory.create())
         .build();
   }
+
+  @Test
+  public void testParse() throws Exception {
+    TestTableProvider root = new TestTableProvider();
+    BeamSqlEnv env = BeamSqlEnv.withTableProvider(root);
+    org.apache.beam.vendor.calcite.v1_40_0.org.apache.calcite.sql.SqlNode parsed = env.parse("SELECT 1");
+    org.junit.Assert.assertNotNull(parsed);
+  }
+
+  @Test
+  public void testParseMaterializedView_notMv_throwsIllegalArgumentException() {
+    TestTableProvider root = new TestTableProvider();
+    BeamSqlEnv env = BeamSqlEnv.withTableProvider(root);
+    org.junit.Assert.assertThrows(
+        IllegalArgumentException.class,
+        () -> env.parseMaterializedView("SELECT 1"));
+  }
 }
