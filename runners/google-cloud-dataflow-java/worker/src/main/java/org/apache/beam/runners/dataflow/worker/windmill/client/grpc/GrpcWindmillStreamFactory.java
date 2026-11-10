@@ -372,7 +372,7 @@ public class GrpcWindmillStreamFactory implements StatusDataProvider {
         streamIdGenerator,
         streamingRpcBatchLimit,
         directStreamingRpcPhysicalStreamHalfCloseAfter,
-        java.time.Duration.ZERO,
+        commitWorkStreamRetryTimeout,
         executorForDirectStreams(connection.backendWorkerToken(), "CommitWork"));
   }
 

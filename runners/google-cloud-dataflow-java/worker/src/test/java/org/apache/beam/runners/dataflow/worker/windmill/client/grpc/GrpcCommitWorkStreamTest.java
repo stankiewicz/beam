@@ -1486,6 +1486,87 @@ public class GrpcCommitWorkStreamTest {
     assertThat(commitStatus.get()).isEqualTo(Windmill.CommitStatus.OK);
   }
 
+  @Test
+  public void testDirectCommitWorkItem_stopsRetriesAfterDuration() throws Exception {
+    int numCommits = 1;
+    CountDownLatch commitProcessed = new CountDownLatch(numCommits);
+    AtomicReference<Windmill.CommitStatus> commitStatus = new AtomicReference<>();
+    GrpcCommitWorkStream commitWorkStream =
+        (GrpcCommitWorkStream)
+            GrpcWindmillStreamFactory.of(TEST_JOB_HEADER)
+                .setDirectStreamingRpcPhysicalStreamHalfCloseAfter(Duration.ofMinutes(1))
+                .setCommitWorkStreamRetryTimeout(Duration.ofNanos(1))
+                .build()
+                .createDirectCommitWorkStream(
+                    WindmillConnection.builder()
+                        .setStubSupplier(
+                            () -> CloudWindmillServiceV1Alpha1Grpc.newStub(inProcessChannel))
+                        .build());
+    commitWorkStream.start();
+
+    FakeWindmillGrpcService.CommitStreamInfo streamInfo = waitForConnectionAndConsumeHeader();
+    try (WindmillStream.CommitWorkStream.RequestBatcher batcher = commitWorkStream.batcher()) {
+      assertTrue(
+          batcher.commitWorkItem(
+              COMPUTATION_ID,
+              workItemCommitRequest(0),
+              status -> {
+                commitStatus.set(status);
+                commitProcessed.countDown();
+              }));
+    }
+
+    assertThat(streamInfo.requests.take().getCommitChunkList()).isNotEmpty();
+    assertThat(commitProcessed.getCount()).isGreaterThan(0);
+    streamInfo.responseObserver.onError(new IOException("test error"));
+    commitProcessed.await();
+    assertThat(commitStatus.get()).isEqualTo(Windmill.CommitStatus.ABORTED);
+  }
+
+  @Test
+  public void testDirectCommitWorkItem_retriesWithLongerCommitRetryTimeout() throws Exception {
+    int numCommits = 1;
+    CountDownLatch commitProcessed = new CountDownLatch(numCommits);
+    AtomicReference<Windmill.CommitStatus> commitStatus = new AtomicReference<>();
+    GrpcCommitWorkStream commitWorkStream =
+        (GrpcCommitWorkStream)
+            GrpcWindmillStreamFactory.of(TEST_JOB_HEADER)
+                .setDirectStreamingRpcPhysicalStreamHalfCloseAfter(Duration.ofMinutes(1))
+                .setCommitWorkStreamRetryTimeout(Duration.ofMinutes(10))
+                .build()
+                .createDirectCommitWorkStream(
+                    WindmillConnection.builder()
+                        .setStubSupplier(
+                            () -> CloudWindmillServiceV1Alpha1Grpc.newStub(inProcessChannel))
+                        .build());
+    commitWorkStream.start();
+
+    FakeWindmillGrpcService.CommitStreamInfo streamInfo = waitForConnectionAndConsumeHeader();
+    try (WindmillStream.CommitWorkStream.RequestBatcher batcher = commitWorkStream.batcher()) {
+      assertTrue(
+          batcher.commitWorkItem(
+              COMPUTATION_ID,
+              workItemCommitRequest(0),
+              status -> {
+                commitStatus.set(status);
+                commitProcessed.countDown();
+              }));
+    }
+
+    assertThat(streamInfo.requests.take().getCommitChunkList()).isNotEmpty();
+    assertThat(commitProcessed.getCount()).isGreaterThan(0);
+    streamInfo.responseObserver.onError(new IOException("test error"));
+
+    FakeWindmillGrpcService.CommitStreamInfo reconnectStreamInfo =
+        waitForConnectionAndConsumeHeader();
+    Windmill.StreamingCommitWorkRequest reconnectRequest = reconnectStreamInfo.requests.take();
+    assertEquals(1, reconnectRequest.getCommitChunkCount());
+    reconnectStreamInfo.responseObserver.onNext(
+        Windmill.StreamingCommitResponse.newBuilder().addRequestId(1).build());
+    commitProcessed.await();
+    assertThat(commitStatus.get()).isEqualTo(Windmill.CommitStatus.OK);
+  }
+
   private FakeWindmillGrpcService.CommitStreamInfo waitForConnectionAndConsumeHeader() {
     try {
       FakeWindmillGrpcService.CommitStreamInfo info = fakeService.waitForConnectedCommitStream();
