@@ -674,6 +674,9 @@ class SynchronousBagRuntimeState(userstate.BagRuntimeState):
 
 
 class SynchronousSetRuntimeState(userstate.SetRuntimeState):
+  # Probability of compacting persisted bag elements on blind-write commits.
+  _BLIND_WRITE_COMPACT_PROBABILITY = 0.02
+
   def __init__(
       self,
       state_handler: sdk_worker.CachingStateHandler,
@@ -711,20 +714,16 @@ class SynchronousSetRuntimeState(userstate.SetRuntimeState):
     return self._compact_data(rewrite=False)
 
   def add(self, value: Any) -> None:
-    if self._cleared:
-      # This is a good time explicitly clear.
-      self._futures.append(self._state_handler.clear(self._state_key))
-      self._cleared = False
-
     self._added_elements.add(value)
-    if random.random() > 0.5:
-      self._compact_data()
 
   def clear(self) -> None:
     self._cleared = True
     self._added_elements = set()
 
   def commit(self) -> None:
+    if (not self._cleared and self._added_elements and
+        random.random() > 1 - self._BLIND_WRITE_COMPACT_PROBABILITY):
+      self._compact_data(rewrite=True)
     if self._cleared:
       self._futures.append(self._state_handler.clear(self._state_key))
       self._cleared = False

@@ -536,7 +536,26 @@ class RuntimeStateCommitTest(unittest.TestCase):
         bundle_processor.SynchronousSetRuntimeState, clear_error='clear failed')
     with mock.patch.object(random, 'random', return_value=1):
       state.add('value')
-    with self.assertRaisesRegex(RuntimeError, 'clear failed'):
+      with self.assertRaisesRegex(RuntimeError, 'clear failed'):
+        state.commit()
+    self.assertEqual(len(futures), 2)
+
+  def test_set_state_buffers_adds_until_commit(self):
+    state, futures = self._create_state(
+        bundle_processor.SynchronousSetRuntimeState, append_errors=('', ))
+    with mock.patch.object(random, 'random', return_value=0.9):
+      for i in range(100):
+        state.add(f'val_{i % 10}')
+      self.assertEqual(len(futures), 0)
+      state.commit()
+    self.assertEqual(len(futures), 1)
+
+    state, futures = self._create_state(
+        bundle_processor.SynchronousSetRuntimeState, append_errors=('', ))
+    with mock.patch.object(random, 'random', return_value=0.99):
+      for i in range(100):
+        state.add(f'val_{i % 10}')
+      self.assertEqual(len(futures), 0)
       state.commit()
     self.assertEqual(len(futures), 2)
 
