@@ -540,6 +540,71 @@ class RuntimeStateCommitTest(unittest.TestCase):
       state.commit()
     self.assertEqual(len(futures), 2)
 
+  def test_combining_value_state_per_bundle_accumulator_and_read(self):
+    state_handler = mock.Mock(spec=sdk_worker.CachingStateHandler)
+    state_handler.blocking_get.return_value = [10]
+    state_handler.clear.side_effect = (
+        lambda *args: sdk_worker._Future().set(beam_fn_api_pb2.StateResponse()))
+    state_handler.extend.side_effect = (
+        lambda *args: sdk_worker._Future().set(beam_fn_api_pb2.StateResponse()))
+
+    state_key = beam_fn_api_pb2.StateKey(
+        bag_user_state=beam_fn_api_pb2.StateKey.BagUserState())
+    bag_state = bundle_processor.SynchronousBagRuntimeState(
+        state_handler, state_key, beam.coders.VarIntCoder())
+    combining_state = bundle_processor.CombiningValueRuntimeState(
+        bag_state, beam.transforms.combiners.CountCombineFn())
+
+    for i in range(1, 101):
+      combining_state.add(1)
+      self.assertEqual(combining_state.read(), 10 + i)
+
+    self.assertEqual(state_handler.blocking_get.call_count, 1)
+    self.assertEqual(state_handler.clear.call_count, 0)
+    self.assertEqual(state_handler.extend.call_count, 0)
+
+    combining_state.commit()
+    self.assertEqual(state_handler.blocking_get.call_count, 1)
+    self.assertEqual(state_handler.clear.call_count, 1)
+    self.assertEqual(state_handler.extend.call_count, 1)
+    self.assertEqual(state_handler.extend.call_args[0][2], [110])
+
+  def test_combining_value_state_blind_write_and_clear(self):
+    state_handler = mock.Mock(spec=sdk_worker.CachingStateHandler)
+    state_handler.blocking_get.return_value = [10, 20]
+    state_handler.clear.side_effect = (
+        lambda *args: sdk_worker._Future().set(beam_fn_api_pb2.StateResponse()))
+    state_handler.extend.side_effect = (
+        lambda *args: sdk_worker._Future().set(beam_fn_api_pb2.StateResponse()))
+
+    state_key = beam_fn_api_pb2.StateKey(
+        bag_user_state=beam_fn_api_pb2.StateKey.BagUserState())
+    bag_state = bundle_processor.SynchronousBagRuntimeState(
+        state_handler, state_key, beam.coders.VarIntCoder())
+    combining_state = bundle_processor.CombiningValueRuntimeState(
+        bag_state, beam.transforms.combiners.CountCombineFn())
+
+    with mock.patch.object(random, 'random', return_value=0.5):
+      for _ in range(100):
+        combining_state.add(1)
+      combining_state.commit()
+
+    self.assertEqual(state_handler.blocking_get.call_count, 0)
+    self.assertEqual(state_handler.clear.call_count, 0)
+    self.assertEqual(state_handler.extend.call_count, 1)
+    self.assertEqual(state_handler.extend.call_args[0][2], [100])
+
+    # Clear followed by read returns empty accumulator output without reading
+    # underlying state.
+    bag_state = bundle_processor.SynchronousBagRuntimeState(
+        state_handler, state_key, beam.coders.VarIntCoder())
+    combining_state = bundle_processor.CombiningValueRuntimeState(
+        bag_state, beam.transforms.combiners.CountCombineFn())
+    combining_state.add(1)
+    combining_state.clear()
+    self.assertEqual(combining_state.read(), 0)
+    self.assertEqual(state_handler.blocking_get.call_count, 0)
+
 
 class OrderedListStateTest(unittest.TestCase):
   class NoStateCache(StateCache):
