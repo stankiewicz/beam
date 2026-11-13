@@ -681,6 +681,9 @@ class CachingStateHandlerTest(unittest.TestCase):
           get_type(), GlobalCachingStateHandler.ContinuationIterable)
       self.assertEqual(get(), [45, 46, 47])
       append(48, 49)
+      # Extending a partially cached ContinuationIterable evicts the cache entry
+      # so the next blocking_get() fetches fresh state from the runner.
+      self.assertEqual(state_cache.size(), 0)
       self.assertEqual(
           get_type(), GlobalCachingStateHandler.ContinuationIterable)
       self.assertEqual(get(), [45, 46, 47, 48, 49])

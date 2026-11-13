@@ -1260,19 +1260,13 @@ class GlobalCachingStateHandler(CachingStateHandler):
     cache_token = self._get_cache_token(state_key)
     if cache_token:
       # Update the cache if the value is already present and
-      # can be updated.
+      # can be updated, or evict if partially cached.
       cache_key = self._convert_to_cache_key(state_key)
-      cached_value = self._state_cache.peek((cache_key, cache_token))
-      if isinstance(cached_value, list):
-        # The state is fully cached and can be extended
-
+      if self._state_cache.peek((cache_key, cache_token)) is not None:
         # Materialize provided iterable to ensure reproducible iterations,
         # here and when writing to the state handler below.
         elements = list(elements)
-        cached_value.extend(elements)
-        # Re-insert into the cache the updated value so the updated size is
-        # reflected.
-        self._state_cache.put((cache_key, cache_token), cached_value)
+        self._state_cache.extend((cache_key, cache_token), elements)
 
     # Write to state handler
     futures = []

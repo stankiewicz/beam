@@ -29,6 +29,7 @@ import types
 import weakref
 from typing import Any
 from typing import Callable
+from typing import Iterable
 from typing import Union
 
 import objsize
@@ -330,6 +331,44 @@ class StateCache(object):
         (_, weighted_value) = self._cache.popitem(last=False)
         self._current_weight -= weighted_value.weight()
         self._evict_count += 1
+
+  def extend(self, key: Any, elements: Iterable[Any]) -> None:
+    assert self.is_cache_enabled()
+    with self._lock:
+      entry = self._cache.get(key, None)
+      if entry is None or _safe_isinstance(entry, _LoadingValue):
+        return
+      if not isinstance(entry.value(), list):
+        # Cached value is a ContinuationIterable; evict so subsequent reads
+        # observe the newly appended elements.
+        self._cache.pop(key, None)
+        self._current_weight -= entry.weight()
+        return
+
+    elements = list(elements)
+    added_weight = max(0, get_deep_size(*elements)) if elements else 0
+    with self._lock:
+      entry = self._cache.get(key, None)
+      if entry is None or _safe_isinstance(entry, _LoadingValue):
+        return
+      cached_value = entry.value()
+      if isinstance(cached_value, list):
+        old_list_shallow = _size_func(cached_value)
+        cached_value.extend(elements)
+        new_list_shallow = _size_func(cached_value)
+        delta_weight = max(
+            0, added_weight + (new_list_shallow - old_list_shallow))
+        new_weight = max(_DEFAULT_WEIGHT, entry.weight() + delta_weight)
+        self._cache.pop(key, None)
+        self._cache[key] = WeightedValue(cached_value, new_weight)
+        self._current_weight += new_weight - entry.weight()
+        while self._current_weight > self._max_weight:
+          (_, weighted_value) = self._cache.popitem(last=False)
+          self._current_weight -= weighted_value.weight()
+          self._evict_count += 1
+      else:
+        self._cache.pop(key, None)
+        self._current_weight -= entry.weight()
 
   def invalidate(self, key: Any) -> None:
     assert self.is_cache_enabled()

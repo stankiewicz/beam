@@ -412,6 +412,37 @@ class StateCacheTest(unittest.TestCase):
 
     self.assertEqual(get_cache._current_weight, put_cache._current_weight)
 
+  def test_extend_incremental_weight(self):
+    cache = StateCache(5 << 20)
+    initial = [{'k': i, 'v': 'x' * 50} for i in range(10)]
+    cache.put('key', list(initial))
+
+    sized_args = []
+    orig_get_deep_size = objsize.get_deep_size
+
+    def tracking_get_deep_size(*objs, **kwargs):
+      sized_args.append(objs)
+      return orig_get_deep_size(*objs, **kwargs)
+
+    new_elements = [{'k': 10, 'v': 'y' * 50}, {'k': 11, 'v': 'z' * 50}]
+    with unittest.mock.patch.object(objsize,
+                                    'get_deep_size',
+                                    side_effect=tracking_get_deep_size):
+      cache.extend('key', new_elements)
+
+    self.assertEqual(len(sized_args), 1)
+    self.assertEqual(list(sized_args[0]), new_elements)
+    self.assertEqual(cache.peek('key'), initial + new_elements)
+    self.assertEqual(cache._current_weight, get_deep_size(cache.peek('key')))
+
+  def test_extend_evicts_non_list(self):
+    cache = StateCache(5 << 20)
+    cache.put('key', (1, 2, 3))
+    self.assertIsNotNone(cache.peek('key'))
+    cache.extend('key', [4, 5])
+    self.assertIsNone(cache.peek('key'))
+    self.assertEqual(cache._current_weight, 0)
+
 
 if __name__ == '__main__':
   logging.getLogger().setLevel(logging.INFO)
