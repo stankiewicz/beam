@@ -540,6 +540,62 @@ class RuntimeStateCommitTest(unittest.TestCase):
       state.commit()
     self.assertEqual(len(futures), 2)
 
+  def test_context_commit_pipelines_futures_before_awaiting(self):
+    events = []
+
+    def make_future(label):
+      future = sdk_worker._Future().set(beam_fn_api_pb2.StateResponse())
+
+      def tracked_get():
+        events.append(('get', label))
+        return beam_fn_api_pb2.StateResponse()
+
+      future.get = mock.Mock(side_effect=tracked_get)
+      return future
+
+    state_handler = mock.Mock(spec=sdk_worker.CachingStateHandler)
+
+    def on_clear(state_key):
+      label = f"clear:{state_key.bag_user_state.user_state_id}"
+      events.append(('enqueue', label))
+      return make_future(label)
+
+    def on_extend(state_key, coder, elements):
+      label = f"extend:{state_key.bag_user_state.user_state_id}"
+      events.append(('enqueue', label))
+      return make_future(label)
+
+    state_handler.clear.side_effect = on_clear
+    state_handler.extend.side_effect = on_extend
+
+    ctx = FnApiUserStateContext(
+        state_handler,
+        'transform_id',
+        StrUtf8Coder(),
+        beam.coders.coders.GlobalWindowCoder())
+
+    bag_spec = userstate.BagStateSpec('bag', StrUtf8Coder())
+    rmw_spec = userstate.ReadModifyWriteStateSpec('rmw', StrUtf8Coder())
+    set_spec = userstate.SetStateSpec('set', StrUtf8Coder())
+
+    s1 = ctx.get_state(bag_spec, 'k1', GlobalWindow())
+    s2 = ctx.get_state(rmw_spec, 'k1', GlobalWindow())
+    s3 = ctx.get_state(set_spec, 'k2', GlobalWindow())
+
+    s1.add('a')
+    s2.write('b')
+    s3.add('c')
+
+    ctx.commit()
+
+    enqueue_indices = [
+        i for i, (kind, _) in enumerate(events) if kind == 'enqueue'
+    ]
+    get_indices = [i for i, (kind, _) in enumerate(events) if kind == 'get']
+    self.assertEqual(len(enqueue_indices), 4)
+    self.assertEqual(len(get_indices), 4)
+    self.assertLess(max(enqueue_indices), min(get_indices))
+
 
 class OrderedListStateTest(unittest.TestCase):
   class NoStateCache(StateCache):

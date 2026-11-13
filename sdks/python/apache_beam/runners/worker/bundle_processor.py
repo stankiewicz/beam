@@ -555,8 +555,11 @@ class ReadModifyWriteRuntimeState(userstate.ReadModifyWriteRuntimeState):
   def clear(self) -> None:
     self._underlying_bag_state.clear()
 
+  def async_commit(self) -> list[sdk_worker._Future]:
+    return self._underlying_bag_state.async_commit()
+
   def commit(self) -> None:
-    self._underlying_bag_state.commit()
+    _await_state_commit(self.async_commit())
 
 
 class CombiningValueRuntimeState(userstate.CombiningValueRuntimeState):
@@ -595,8 +598,11 @@ class CombiningValueRuntimeState(userstate.CombiningValueRuntimeState):
   def clear(self) -> None:
     self._underlying_bag_state.clear()
 
+  def async_commit(self) -> list[sdk_worker._Future]:
+    return self._underlying_bag_state.async_commit()
+
   def commit(self):
-    self._underlying_bag_state.commit()
+    _await_state_commit(self.async_commit())
 
   def finalize(self):
     if not self._finalized:
@@ -660,7 +666,7 @@ class SynchronousBagRuntimeState(userstate.BagRuntimeState):
     self._cleared = True
     self._added_elements = []
 
-  def commit(self) -> None:
+  def async_commit(self) -> list[sdk_worker._Future]:
     futures = []
     if self._cleared:
       futures.append(self._state_handler.clear(self._state_key))
@@ -670,7 +676,10 @@ class SynchronousBagRuntimeState(userstate.BagRuntimeState):
               self._state_key,
               self._value_coder.get_impl(),
               self._added_elements))
-    _await_state_commit(futures)
+    return futures
+
+  def commit(self) -> None:
+    _await_state_commit(self.async_commit())
 
 
 class SynchronousSetRuntimeState(userstate.SetRuntimeState):
@@ -724,7 +733,7 @@ class SynchronousSetRuntimeState(userstate.SetRuntimeState):
     self._cleared = True
     self._added_elements = set()
 
-  def commit(self) -> None:
+  def async_commit(self) -> list[sdk_worker._Future]:
     if self._cleared:
       self._futures.append(self._state_handler.clear(self._state_key))
       self._cleared = False
@@ -736,13 +745,14 @@ class SynchronousSetRuntimeState(userstate.SetRuntimeState):
               self._added_elements))
       self._added_elements = set()
 
-    # Block on all outstanding async state requests to ensure data is committed.
     # We must swap and clear self._futures before awaiting them. Awaiting a future
     # yields control, during which new futures could be appended to self._futures.
     all_futures = self._futures
     self._futures = []
+    return all_futures
 
-    _await_state_commit(all_futures)
+  def commit(self) -> None:
+    _await_state_commit(self.async_commit())
 
 
 class RangeSet:
@@ -888,7 +898,7 @@ class SynchronousOrderedListRuntimeState(userstate.OrderedListRuntimeState):
     if not self._cleared:
       self._pending_removes.add(min_key, limit_key)
 
-  def commit(self) -> None:
+  def async_commit(self) -> list[sdk_worker._Future]:
     futures = []
     if self._pending_removes:
       for start, end in self._pending_removes:
@@ -911,9 +921,11 @@ class SynchronousOrderedListRuntimeState(userstate.OrderedListRuntimeState):
               self._state_key, self._elem_coder.get_impl(), items_to_add))
       self._pending_adds = SortedDict()
 
-    _await_state_commit(futures)
-
     self._cleared = False
+    return futures
+
+  def commit(self) -> None:
+    _await_state_commit(self.async_commit())
 
 
 class OutputTimer(userstate.BaseTimer):
@@ -1071,8 +1083,13 @@ class FnApiUserStateContext(userstate.UserStateContext):
       raise NotImplementedError(state_spec)
 
   def commit(self) -> None:
+    futures = []
     for state in self._all_states.values():
-      state.commit()
+      if hasattr(state, 'async_commit'):
+        futures.extend(state.async_commit())
+      else:
+        state.commit()
+    _await_state_commit(futures)
 
   def reset(self) -> None:
     for state in self._all_states.values():
